@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChatGPT Web</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="sidebar" id="sidebar">
+        <h2>Settings</h2>
+        <label for="max-tokens">Max Tokens:</label>
+        <input type="number" id="max-tokens" value="50">
+    </div>
+    <div class="chat-container">
+        <div id="chat-messages"></div>
+        <input type="text" id="user-input" placeholder="Type your message here...">
+        <button onclick="sendMessage()">Send</button>
+    </div>
+    <div class="floating-circle" id="floating-circle">
+        <div class="expanded-content">
+            <button onclick="toggleSidebar()">Toggle Sidebar</button>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,64 @@
+.chat-container-GPT-messages-user {
+    display: flex;
+    flex-direction: row-reverse;
+    box-sizing: border-box;
+    padding: 10px;
+    align-items: flex-start;
+    width: 100%;
+}
+
+.chat-container-GPT-messages-user-icon {
+    display: grid;
+    color: white;
+    background-color: #0b6b4b;
+    margin-right: 5%;
+    width: 50px;
+    height: 50px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 20px;
+    font-family: 'Bauhaus 93';
+    font-size: 20px;
+}
+
+.chat-container-GPT-messages-user-bubble {
+    margin-right: 20px;
+    background-color: #2d3d37;
+    box-sizing: border-box;
+    padding: 0px 20px;
+    border-radius: 10px;
+    max-width: 70%;
+}
+
+.chat-container-GPT-messages-bot {
+    display: flex;
+    flex-direction: row;
+    box-sizing: border-box;
+    padding: 10px;
+    align-items: flex-start;
+    width: 100%;
+}
+
+.chat-container-GPT-messages-bot-icon {
+    display: grid;
+    color: white;
+    background-color: #0f5886;
+    margin-left: 5%;
+    width: 50px;
+    height: 50px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 20px;
+    font-family: 'Bauhaus 93';
+    font-size: 20px;
+}
+
+.chat-container-GPT-messages-bot-bubble {
+    margin-left: 20px;
+    background-color: #222222;
+    box-sizing: border-box;
+    padding: 0px 20px;
+    border-radius: 10px;
+    max-width: 70%;
+}
+

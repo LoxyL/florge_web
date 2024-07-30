@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Chat Tool</title>
+	<link rel="stylesheet" href="./css/main_styles.css">
+	<link rel="stylesheet" href="./css/GPT-dialog.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.5.1/styles/default.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it/dist/markdown-it.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.5.1/highlight.min.js"></script>
+</head>
+<body>
+	<div id="sidebar-GPT" class="sidebar-GPT">
+		<h1 class="sidebar-title">
+			Chat Tool
+		</h1>
+		<div class="sidebar-GPT-model-setting">
+			<label for="model-GPT">Model</label>
+			<br>
+			<select name="model-GPT" id="model-GPT" class="sidebar-GPT-select">
+				<option value="gpt-3.5-turbo">GPT-3.5</option>
+				<option value="gpt-4-turbo">GPT-4</option>
+				<option value="gpt-4o">GPT-4o</option>
+			</select>
+		</div>
+		<div class="sidebar-GPT-max-tokens-setting">
+			<label for="max-tokens">Max Tokens</label>
+			<br>
+			<input type="number" name="max-tokens" id="max-tokens" value="2000" class="sidebar-GPT-input">
+		</div>
+	</div>
+	
+	<div class="chat-container-GPT">
+        <div id="chat-container-GPT-messages" class="chat-container-GPT-messages-container">
+			<div class="chat-container-GPT-messages-user">
+				<div class="chat-container-GPT-messages-user-icon">U</div>
+				<div class="chat-container-GPT-messages-user-bubble">
+					<p>Lorem ipsum, dolor sit amet consectetur adipisicing elit. Veniam accusantium quam necessitatibus quis beatae laboriosam quidem! Alias non praesentium ex! Tempore architecto enim voluptatem sequi dicta, vitae similique quo eligendi.</p>
+				</div>
+			</div>
+			<div class="chat-container-GPT-messages-bot">
+				<div class="chat-container-GPT-messages-bot-icon">B</div>
+				<div class="chat-container-GPT-messages-bot-bubble">
+					<p>Lorem ipsum, dolor sit amet consectetur adipisicing elit. Veniam accusantium quam necessitatibus quis beatae laboriosam quidem! Alias non praesentium ex! Tempore architecto enim voluptatem sequi dicta, vitae similique quo eligendi.</p>
+				</div>
+			</div>
+		</div>
+		<div class="chat-container-GPT-input">
+			<textarea name="message-send-GPT" id="message-send-GPT" rows="1" cols="30"></textarea>
+			<button onclick="send()">&#9650</button>
+		</div>
+	</div>
+
+	<!-- <script type="module" src="js/dialogGPT.js"></script> -->
+	<script src="js/GPT-input_resize.js"></script>
+	<script type="module" src="js/GPT-main.js"></script>
+</body>
+</html>

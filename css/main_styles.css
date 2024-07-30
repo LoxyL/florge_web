@@ -1,0 +1,147 @@
+body {
+  font-family: "微软雅黑";
+  background-color: #121212;
+  color: #ffffff;
+  margin: 0;
+  padding: 0;
+  display: flex;
+}
+
+.sidebar-GPT {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 250px;
+  background-color: #1e1e1e;
+  /* padding: 20px; */
+  height: 100vh;
+  box-sizing: border-box;
+  transition: all 0.3s ease;
+  font-size: 12px;
+}
+
+.sidebar-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  background-color: #0b6b4b;
+  width: 200px;
+  height: 60px;
+  border-radius: 30px;
+  font-family: 'Bauhaus 93';
+  font-size: 30px;
+}
+
+.sidebar-GPT-select {
+  appearance: none;
+  text-align: center;
+  color: white;
+  background-color: #000000;
+  width: 170px;
+  height: 50px;
+  border: 0px;
+  border-radius: 10px;
+  outline: none;
+  font-family: 'Berlin Sans FB';
+  font-size: 15px;
+  transition: background-color 0.2s ease;
+}
+
+.sidebar-GPT-select:hover {
+  background-color: #333333;
+}
+
+.sidebar-GPT-model-setting {
+  margin-top: 20px;
+}
+
+.sidebar-GPT-max-tokens-setting {
+  margin-top: 30px;
+}
+
+.sidebar-GPT-input {
+  appearance: none;
+  width: 150px;
+  height: 30px;
+  color: white;
+  background-color: #000000;
+  border: 0px;
+  outline: none;
+  border-radius: 10px;
+  padding: 5px 10px;
+}
+
+.sidebar-GPT-input::-webkit-inner-spin-button,
+.sidebar-GPT-input::-webkit-outer-spin-button {
+  appearance: none;
+}
+
+.chat-container-GPT {
+  flex: 1;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  height: 100vh;
+  box-sizing: border-box;
+}
+
+.chat-container-GPT-messages-container {
+  flex: 1;
+  width: 100%;
+}
+
+.chat-container-GPT-input {
+  padding: 10px;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.chat-container-GPT-input textarea {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  outline: none;
+  border-radius: 10px;
+  min-height: 40px;
+  max-height: 300px;
+  background-color: #333333;
+  color: #ffffff;
+  box-sizing: border-box;
+  resize: none;
+  overflow: hidden;
+  font-family: '微软雅黑';
+  font-size: 15px;
+  border: 2px, solid, #333333;
+  transition: all 0.2s ease;
+}
+
+.chat-container-GPT-input textarea:hover,
+.chat-container-GPT-input textarea:focus {
+  border: 2px, solid, #0b6b4b;
+}
+
+.chat-container-GPT-input button {
+  color: white;
+  background-color: #0b6b4b;
+  margin-left: 20px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 20px;
+  font-family: 'Times New Roman', Times, serif;
+  font-size: 15px;
+  transition: background-color 0.2s ease;
+}
+
+.chat-container-GPT-input button:hover {
+  background-color: #109c6e;
+}
+
+.chat-container-GPT-input button:active {
+  background-color: #074732;
+}
