@@ -51,18 +51,43 @@ export class DialogGPT {
 		chatContainer.appendChild(userSet);
 	}
 
-	_receive_message(inputValue) {
+	async _receive_message(inputValue) {
 		var contentIter = this.bot.interact(inputValue);
-		for (piece in contentIter) {
-			console.log(piece);
+		var receive_content = "";
+		
+		var chatContainer = document.getElementById("chat-container-GPT-messages");
+
+		var botSet = document.createElement("div");
+		botSet.setAttribute("id", 'chat-container-GPT-messages-bot-'+this.dialog_num);
+		botSet.setAttribute("class", "chat-container-GPT-messages-bot");
+
+		var botIcon = document.createElement("div");
+		botIcon.setAttribute("class", "chat-container-GPT-messages-bot-icon");
+		botIcon.innerHTML = "B";
+
+		var botBubble = document.createElement("div");
+		botBubble.setAttribute("class", "chat-container-GPT-messages-bot-bubble");
+		botBubble.innerHTML = this._processTextDisplay("...");
+
+		botSet.appendChild(botIcon);
+		botSet.appendChild(botBubble);
+		chatContainer.appendChild(botSet);
+
+		for await (const piece of contentIter) {
+			if (piece == undefined) continue;
+			receive_content += piece;
+			botBubble.innerHTML = this._processTextDisplay(receive_content);
 		}
+		console.log("[INFO]Done receive content.");
 	}
 
-	send() {
-		var inputValue = getInputGPT();
+	async send() {
+		var inputValue = this._getInputGPT();
 		if(inputValue !== ""){
+			console.log("[INFO]Send content: ", inputValue);
 			this._send_message(inputValue);
 			this._receive_message(inputValue);
+			this.dialog_num += 1;
 		} 
 	}
 }

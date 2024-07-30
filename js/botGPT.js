@@ -1,5 +1,5 @@
-import axios from 'axios';
-import readline from 'readline';
+// import axios from 'axios';
+// import readline from 'readline';
 
 
 export class BotGPT {
@@ -7,68 +7,95 @@ export class BotGPT {
         this.src = "https://api.openai-hk.com/v1/chat/completions";
         this.apiKey = "hk-piidk61000036048c6e26ccd2f9cba72db0ca084190047f5";
         this.systemPrompt = "";
-        this._refresh();
-    }
-
-    _getParams() {
-        this.model = document.getElementById("model-GPT").value;
-        this.maxTokens = document.getElementById("max-tokens").value;
-    }
-
-    _refresh() {
-        this._getParams();
-        this._header =  {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.apiKey}`
-        };
         this.body = {
-            model: this.model,
+            model: 'gpt-3.5-turbo',
             messages: [
                 {
                     role: "system",
                     content: this.systemPrompt
                 }
             ],
-            max_tokens: this.maxTokens,
+            max_tokens: 0,
             stream: true
         }
+        this._refresh();
+        console.log("[INFO]Done creating new bot.");
+    }
+
+    _getParams() {
+        this.model = document.getElementById("model-GPT").value;
+        this.maxTokens = Number(document.getElementById("max-tokens").value);
+    }
+
+    _refresh() {
+        this._getParams();
+        this._headers =  {
+            'Authorization': `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json'
+        };
+        this.body.model = this.model;
+        this.body.max_tokens = this.maxTokens;
+        console.log("[INFO]Current params:\n[INFO]\tmodel: ", this.model, "\n[INFO]\tmax_tokens: ", this.maxTokens);
     }
 
     async *interact(contentSend) {
+        console.log("[INFO]Starting interaction.");
         this._refresh();
-        messageSend = {
+        const messageSend = {
             role: 'user',
             content: contentSend
         }
         this.body.messages.push(messageSend);
+        console.log("[INFO]Current context: ", this.body);
         try {
-            const response = await axios({
-                method: 'post',
-                url: this.src,
-                headers: this._header,
-                data: this.body,
-                responseType: 'stream'
-            });
-      
-            const rl = readline.createInterface({
-                input: response.data
+            const response = await fetch(this.src, {
+                method: 'POST',
+                headers: this._headers,
+                body: JSON.stringify(this.body)
             });
 
+            console.log("[INFO]Response: ", response);
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+
             var response_content = "";
+
+            var buffer = '';
       
-            for await (const line of rl) {
-                if (line.trim().startsWith('data:')) {
-                    const message = JSON.parse(line.trim().substring(5).trim());
-                    if (message.choices && message.choices.length > 0) {
-                        process.stdout.write(message.choices[0].delta.content);
-                        response_content += message.choices[0].delta.content;
-                        yield message.choices[0].delta.content;
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+    
+                buffer += decoder.decode(value, { stream: true });
+
+                // console.log("[INFO]Current buffer: ", buffer);
+    
+                let lines = buffer.split('\n');
+                buffer = lines.pop();
+    
+                for (const line of lines) {
+                    if (line.trim().startsWith('data:')) {
+                        try {
+                            const message = JSON.parse(line.trim().substring(5).trim());
+                            if (message.choices && message.choices.length > 0) {
+                                if(message.choices[0].delta.content == undefined) continue;
+                                response_content += message.choices[0].delta.content;
+                                yield message.choices[0].delta.content;
+                            }
+                        } catch (error) {
+                            ;
+                        }
                     }
                 }
             }
             
-            messageReceive = {
-                role: 'agent',
+            const messageReceive = {
+                role: 'assistant',
                 content: response_content
             }
 

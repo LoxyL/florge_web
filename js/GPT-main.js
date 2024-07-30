@@ -5,3 +5,5 @@ const dialog = new DialogGPT();
 function send() {
     dialog.send();
 }
+
+window.send = send;
