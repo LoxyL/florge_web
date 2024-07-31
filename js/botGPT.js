@@ -57,7 +57,7 @@ export class BotGPT {
             console.log("[INFO]Response: ", response);
 
             if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                throw new Error(`[INFO]HTTP error! status: ${response.status}`);
             }
 
             const reader = response.body.getReader();
@@ -102,7 +102,83 @@ export class BotGPT {
             this.body.messages.push(messageReceive);
 
         } catch (error) {
-            console.error(`Error interacting with ${this.model}:`, error);
+            console.error(`[INFO]Error interacting with ${this.model}:`, error);
+        }
+    }
+}
+
+export class AgentGPT {
+    constructor() {
+        this.src = "https://api.openai-hk.com/v1/chat/completions";
+        this.apiKey = "hk-piidk61000036048c6e26ccd2f9cba72db0ca084190047f5";
+        console.log("[INFO][AGENT]Done creating new agent.");
+    }
+
+    async *interact(systemPrompt, contentSend) {
+        this.body = {
+            model: 'gpt-3.5-turbo',
+            messages: [
+                {
+                    role: "system",
+                    content: systemPrompt
+                },
+                {
+                    role: 'user',
+                    content: contentSend
+                }
+            ],
+            max_tokens: 200,
+            stream: true
+        }
+        console.log("[INFO][AGENT]Current context: ", this.body);
+        try {
+            const response = await fetch(this.src, {
+                method: 'POST',
+                headers: this._headers,
+                body: JSON.stringify(this.body)
+            });
+
+            console.log("[INFO][AGENT]Response: ", response);
+
+            if (!response.ok) {
+                throw new Error(`[INFO][AGENT]HTTP error! status: ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+
+            var response_content = "";
+
+            var buffer = '';
+      
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+    
+                buffer += decoder.decode(value, { stream: true });
+
+                // console.log("[INFO]Current buffer: ", buffer);
+    
+                let lines = buffer.split('\n');
+                buffer = lines.pop();
+    
+                for (const line of lines) {
+                    if (line.trim().startsWith('data:')) {
+                        try {
+                            const message = JSON.parse(line.trim().substring(5).trim());
+                            if (message.choices && message.choices.length > 0) {
+                                if(message.choices[0].delta.content == undefined) continue;
+                                response_content += message.choices[0].delta.content;
+                                yield message.choices[0].delta.content;
+                            }
+                        } catch (error) {
+                            ;
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(`[INFO][AGENT]Error interacting with agent ${this.model}:`, error);
         }
     }
 }

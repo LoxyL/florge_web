@@ -1,9 +1,10 @@
-import {BotGPT} from "./botGPT.js";
+import {BotGPT, AgentGPT} from "./botGPT.js";
 
 export class DialogGPT {
 	constructor() {
 		this.dialog_num = 0;
 		this.bot = new BotGPT();
+		this.agent = new AgentGPT();
 	}
 
 	_getInputGPT() {
