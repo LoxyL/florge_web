@@ -93,7 +93,6 @@ body {
   overflow-y: auto;
 }
 
-/* 自定义滚动条样式 */
 .chat-container-GPT-messages-container::-webkit-scrollbar {
   width: 8px;
 }
@@ -163,5 +162,48 @@ body {
 }
 
 .chat-container-GPT-input button:active {
+  background-color: #074732;
+}
+
+.chat-record-sidebar-GPT {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 20px;
+  background-color: #074732;
+  transition: all 0.3s ease;
+  overflow-x: hidden;
+}
+
+.chat-record-sidebar-GPT:hover {
+  width: 300px;
+  background-color: #14221d;
+}
+
+.new-chat-button-GPT {
+  opacity: 0;
+  visibility: hidden;
+  width: 200px;
+  height: 50px;
+  margin: 30px;
+  color: #ffffff;
+  background-color: #506860;
+  border: 0px;
+  border-radius: 20px;
+  font-size: 20px;
+  font-family: 'Berlin Sans FB';
+  transition: all 0.3s ease;
+}
+
+.chat-record-sidebar-GPT:hover .new-chat-button-GPT {
+  visibility: visible;
+  opacity: 1;
+}
+
+.new-chat-button-GPT:hover {
+  background-color: #0b6b4b;
+}
+
+.new-chat-button-GPT:active {
   background-color: #074732;
 }
