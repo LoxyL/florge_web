@@ -4,8 +4,6 @@
 
 export class BotGPT {
     constructor() {
-        this.src = "https://api.openai-hk.com/v1/chat/completions";
-        this.apiKey = "hk-piidk61000036048c6e26ccd2f9cba72db0ca084190047f5";
         this.systemPrompt = "";
         this.body = {
             model: 'gpt-3.5-turbo',
@@ -23,6 +21,8 @@ export class BotGPT {
     }
 
     _getParams() {
+        this.src = document.getElementById('config-source-GPT').value;
+        this.apiKey = document.getElementById('config-apikey-GPT').value;
         this.model = document.getElementById("model-GPT").value;
         this.maxTokens = Number(document.getElementById("max-tokens").value);
     }
@@ -109,8 +109,8 @@ export class BotGPT {
 
 export class AgentGPT {
     constructor() {
-        this.src = "https://api.openai-hk.com/v1/chat/completions";
-        this.apiKey = "hk-piidk61000036048c6e26ccd2f9cba72db0ca084190047f5";
+        this.src = document.getElementById('config-source-GPT').value;
+        this.apiKey = document.getElementById('config-apikey-GPT').value;
         console.log("[INFO][AGENT]Done creating new agent.");
     }
 

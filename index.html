@@ -24,61 +24,98 @@
 		<input type="radio" id="option4" name="sidebar-option">
 		<label for="option4"></label>
 	</div>
-	<div id="sidebar-GPT" class="sidebar-GPT">
-		<h1 class="sidebar-title">
-			Chat Tool
-		</h1>
-		<div class="sidebar-GPT-model-setting">
-			<label for="model-GPT">Model</label>
-			<br>
-			<select name="model-GPT" id="model-GPT" class="sidebar-GPT-select">
-				<option value="gpt-3.5-turbo">GPT-3.5</option>
-				<option value="gpt-4-turbo">GPT-4</option>
-				<option value="gpt-4o">GPT-4o</option>
-			</select>
-		</div>
-		<div class="sidebar-GPT-max-tokens-setting">
-			<label for="max-tokens">Max Tokens</label>
-			<br>
-			<input type="number" name="max-tokens" id="max-tokens" value="2000" class="sidebar-GPT-input">
-		</div>
-	</div>
-	
-	<div class="chat-container-GPT">
-        <div id="chat-container-GPT-messages" class="chat-container-GPT-messages-container">
-			<div class="chat-container-GPT-messages-user">
-				<div class="chat-container-GPT-messages-user-icon">U</div>
-				<div class="chat-container-GPT-messages-user-bubble">
-					<p>Lorem ipsum, dolor sit amet consectetur adipisicing elit. Veniam accusantium quam necessitatibus quis beatae laboriosam quidem! Alias non praesentium ex! Tempore architecto enim voluptatem sequi dicta, vitae similique quo eligendi.</p>
-				</div>
-			</div>
-			<div class="chat-container-GPT-messages-bot">
-				<div class="chat-container-GPT-messages-bot-icon">B</div>
-				<div class="chat-container-GPT-messages-bot-bubble">
-					<p>Lorem ipsum, dolor sit amet consectetur adipisicing elit. Veniam accusantium quam necessitatibus quis beatae laboriosam quidem! Alias non praesentium ex! Tempore architecto enim voluptatem sequi dicta, vitae similique quo eligendi.</p>
-				</div>
-			</div>
-		</div>
-		<div class="chat-container-GPT-input">
-			<textarea name="message-send-GPT" id="message-send-GPT" rows="1" cols="30"></textarea>
-			<button onclick="send()">&#9650</button>
-		</div>
-	</div>
 
-	<div class="chat-record-sidebar-GPT">
-		<button class="new-chat-button-GPT">New Chat</button>
-		<div id="record-container-GPT" class="record-container-GPT"></div>
+	<div class="GPT-window">
+		<div id="sidebar-GPT" class="sidebar-GPT">
+			<h1 class="sidebar-title">
+				Chat Tool
+			</h1>
+			<div class="sidebar-GPT-model-setting">
+				<label for="model-GPT">Model</label>
+				<br>
+				<select name="model-GPT" id="model-GPT" class="sidebar-GPT-select">
+					<option value="gpt-3.5-turbo">GPT-3.5</option>
+					<option value="gpt-4-turbo">GPT-4</option>
+					<option value="gpt-4o">GPT-4o</option>
+				</select>
+			</div>
+			<div class="sidebar-GPT-max-tokens-setting">
+				<label for="max-tokens">Max Tokens</label>
+				<br>
+				<input type="number" name="max-tokens" id="max-tokens" value="2000" class="sidebar-GPT-input">
+			</div>
+			<div class="sidebar-GPT-max-contexts-setting">
+				<label for="max-contexts">Max Contexts</label>
+				<br>
+				<input type="number" name="max-contexts" id="max-contexts" value="10" class="sidebar-GPT-input">
+			</div>
+		</div>
+		
+		<div class="chat-container-GPT">
+			<div id="chat-container-GPT-messages" class="chat-container-GPT-messages-container">
+				<div class="chat-container-GPT-messages-user">
+					<div class="chat-container-GPT-messages-user-icon">U</div>
+					<div class="chat-container-GPT-messages-user-bubble">
+						<p>Lorem ipsum, dolor sit amet consectetur adipisicing elit. Veniam accusantium quam necessitatibus quis beatae laboriosam quidem! Alias non praesentium ex! Tempore architecto enim voluptatem sequi dicta, vitae similique quo eligendi.</p>
+					</div>
+				</div>
+				<div class="chat-container-GPT-messages-bot">
+					<div class="chat-container-GPT-messages-bot-icon">B</div>
+					<div class="chat-container-GPT-messages-bot-bubble">
+						<p>Lorem ipsum, dolor sit amet consectetur adipisicing elit. Veniam accusantium quam necessitatibus quis beatae laboriosam quidem! Alias non praesentium ex! Tempore architecto enim voluptatem sequi dicta, vitae similique quo eligendi.</p>
+					</div>
+				</div>
+			</div>
+			<div class="chat-container-GPT-input">
+				<textarea name="message-send-GPT" id="message-send-GPT" rows="1" cols="30"></textarea>
+				<button onclick="send()">&#9650</button>
+			</div>
+		</div>
+	
+		<div class="chat-record-sidebar-GPT">
+			<button class="new-chat-button-GPT">New Chat</button>
+			<div id="record-container-GPT" class="record-container-GPT"></div>
+		</div>
 	</div>
 
 	<div class="config-container">
 		<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="-20 -20 1024 1024">
 			<path fill-rule="evenodd"  fill="rgb(255, 255, 255)" d="M233.393,3.360 C358.822,3.360 484.288,3.360 609.716,3.360 C669.651,3.358 743.891,-5.769 798.567,6.117 C848.340,16.937 891.945,39.042 924.008,68.147 C1035.364,169.228 1005.334,382.088 1005.338,589.201 C1005.342,758.949 1017.696,893.092 917.116,964.139 C837.578,1020.323 752.463,1020.653 615.230,1020.655 C525.638,1020.655 436.020,1020.655 346.428,1020.655 C281.331,1020.657 213.042,1024.597 164.469,1005.492 C107.719,983.172 59.183,941.728 30.757,891.081 C-1.581,833.462 1.810,745.696 1.809,655.366 C1.809,558.425 1.809,461.455 1.809,364.514 C1.808,317.432 -3.737,263.937 4.566,221.155 C12.701,179.243 27.842,139.579 47.299,108.122 C74.176,64.668 127.853,30.019 181.011,13.009 C198.470,9.793 215.934,6.576 233.393,3.360 ZM227.879,55.741 C210.880,60.795 193.875,65.850 176.875,70.904 C138.178,89.238 100.296,119.482 80.382,156.368 C47.131,217.960 51.435,313.823 51.434,411.381 C51.434,497.755 51.434,584.155 51.434,670.529 C51.431,756.751 51.169,829.147 84.518,880.054 C110.895,920.318 149.613,947.904 200.310,964.139 C234.856,975.202 284.687,971.031 328.508,971.031 C410.748,971.031 493.014,971.031 575.254,971.031 C691.984,971.035 816.086,980.824 879.897,928.299 C909.514,903.921 935.465,867.680 948.821,827.673 C966.563,774.529 955.713,685.891 955.713,620.905 C955.713,491.344 955.713,361.744 955.713,232.183 C942.248,177.350 919.040,133.021 882.654,101.230 C828.680,54.071 746.471,55.738 642.800,55.741 C504.507,55.741 366.172,55.741 227.879,55.741 ZM205.823,130.177 C211.337,130.637 216.852,131.096 222.365,131.556 C226.041,134.772 229.717,137.989 233.393,141.205 C233.564,151.761 231.657,156.057 227.879,161.882 C185.659,169.771 182.275,204.207 161.712,233.561 C145.756,235.157 142.215,230.443 134.143,221.155 C134.688,179.233 178.281,146.910 205.823,130.177 ZM784.783,130.177 C813.002,129.589 882.390,194.697 871.626,221.155 C868.410,224.830 865.193,228.507 861.977,232.183 C857.383,231.723 852.787,231.264 848.192,230.804 C847.273,230.345 846.354,229.885 845.435,229.426 C836.027,222.975 837.468,208.950 830.272,200.478 C814.228,181.588 790.572,170.285 773.755,152.232 C774.004,140.466 777.182,137.941 782.026,131.556 C782.945,131.096 783.864,130.637 784.783,130.177 ZM564.227,254.238 C598.169,254.578 612.753,275.609 637.286,283.185 C647.524,268.704 690.199,222.156 707.588,218.398 C731.757,213.175 796.869,278.456 793.053,298.348 C788.767,320.697 742.772,353.283 728.265,372.784 C730.108,376.087 759.970,444.464 759.970,444.464 C789.375,444.464 818.788,444.464 848.192,444.464 C854.165,449.977 860.140,455.492 866.113,461.005 C868.580,482.921 874.329,541.486 860.599,553.361 C849.008,573.906 788.646,566.457 757.213,565.767 C756.203,594.875 739.718,616.558 728.265,636.068 C736.836,662.448 800.425,689.987 793.053,722.910 C789.583,738.413 728.312,804.653 704.831,793.211 C682.318,770.699 659.799,748.180 637.286,725.667 C635.448,725.667 633.610,725.667 631.772,725.667 C618.456,739.508 589.296,752.593 564.227,753.236 C566.317,836.812 583.309,869.047 495.303,869.026 C481.183,869.023 465.562,870.339 456.706,864.891 C434.907,851.480 442.060,788.024 442.921,753.236 C414.678,752.377 390.509,738.428 371.240,727.046 C347.349,749.099 323.451,771.158 299.560,793.211 C276.482,801.395 206.968,735.232 214.094,706.369 C219.766,683.398 264.367,658.518 277.504,636.068 C266.688,614.678 253.456,594.881 249.935,565.767 C224.064,566.348 162.099,573.547 149.306,558.875 C135.514,550.355 128.388,487.666 138.278,463.762 C143.332,457.789 148.388,451.815 153.441,445.842 C185.603,445.383 217.773,444.923 249.935,444.464 C250.352,412.319 271.722,395.462 277.504,370.027 C256.829,348.893 236.148,327.753 215.473,306.619 C203.882,282.168 274.331,212.356 299.560,218.398 C330.763,225.871 340.420,274.763 372.619,281.807 C387.815,267.710 415.209,254.509 442.921,254.238 C442.054,220.108 435.068,158.202 456.706,145.340 C465.711,139.988 481.072,141.208 495.303,141.205 C580.591,141.185 566.262,173.206 564.227,254.238 ZM484.275,359.000 C425.027,388.204 386.524,393.491 364.348,461.005 C332.059,559.308 425.063,669.236 522.872,648.474 C699.142,611.058 685.904,356.358 484.275,359.000 ZM489.789,438.950 C577.067,436.030 597.267,539.364 531.143,567.146 C478.584,589.229 419.426,541.893 438.786,483.060 C447.357,457.013 466.584,450.680 489.789,438.950 ZM495.303,469.276 C460.966,490.716 458.857,511.644 489.789,538.198 C555.825,541.756 548.596,467.250 495.303,469.276 ZM147.928,786.319 C157.240,786.483 160.550,788.392 165.848,791.833 C174.180,838.716 207.596,838.965 233.393,866.269 C233.143,878.035 229.966,880.560 225.122,886.946 C224.203,887.405 223.284,887.865 222.365,888.324 C188.534,888.779 134.111,833.101 131.386,804.239 C134.461,796.326 137.904,793.555 142.414,787.697 C144.251,787.238 146.090,786.778 147.928,786.319 ZM848.192,786.319 C852.787,786.778 857.383,787.238 861.977,787.697 C866.112,790.914 870.248,794.131 874.383,797.347 C876.803,823.036 814.582,899.650 784.783,886.946 C781.566,884.649 778.349,882.351 775.133,880.054 C773.538,866.278 775.741,862.157 782.026,853.863 C822.520,849.098 825.375,808.529 848.192,786.319 Z"/>
 		</svg>
-		
-	</div>
+		<div class="config-container-content">
+			<div class="config-tabs">
+				<button class="config-tab-button active" onclick="configOpenTab(event, 'config-tab-content-source')">Source</button>
+				<button class="config-tab-button" onclick="configOpenTab(event, 'config-tab-content-function')">Function</button>
+				<button class="config-tab-button" onclick="configOpenTab(event, 'config-tab-content-system')">System</button>
+			</div>
+			<div class="config-tab-contents">
+				<div id="config-tab-content-source" class="config-tab-content">
+					<div class="config-tab-content-part">
+						<label for="config-source-GPT">GPT Source</label>
+						<input name="config-source-GPT" type="text" id="config-source-GPT">
+						<br>
+						<label for="config-apikey-GPT">API key</label>
+						<input name="config-apikey-GPT" type="password" id="config-apikey-GPT">
+					</div>
+				</div>
+				<div id="config-tab-content-function" class="config-tab-content">
+					
+				</div>
+				<div id="config-tab-content-system" class="config-tab-content">
+					
+				</div>
+			</div>
+			<div class="config-buttons">
+				<button class="config-button" onclick="configSave()">Save</button>		
+				<button class="config-button" onclick="configLoad()">Load</button>			
+			</div>
 
-	<!-- <script type="module" src="js/dialogGPT.js"></script> -->
+		</div>
+	</div>
+	
+	
 	<script src="js/GPT-input_event.js"></script>
 	<script type="module" src="js/GPT-main.js"></script>
+	<script src="js/configEvent.js"></script>
 </body>
 </html>

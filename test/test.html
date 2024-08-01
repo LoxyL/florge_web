@@ -3,25 +3,96 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ChatGPT Web</title>
-    <link rel="stylesheet" href="styles.css">
+    <title>Sidebar Pagination with JavaScript</title>
+    <style>
+        body {
+            display: flex;
+            height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        .sidebar {
+            width: 200px;
+            background-color: #f4f4f4;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .page {
+            display: none;
+            width: 100%;
+            height: 100%;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        .pagination {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            width: 50px;
+            background-color: #333;
+            color: white;
+        }
+
+        .pagination a {
+            color: white;
+            text-decoration: none;
+            padding: 10px;
+            transition: background-color 0.3s;
+        }
+
+        .pagination a:hover {
+            background-color: #555;
+        }
+
+        .pagination a:focus {
+            background-color: #777;
+        }
+    </style>
 </head>
 <body>
-    <div class="sidebar" id="sidebar">
-        <h2>Settings</h2>
-        <label for="max-tokens">Max Tokens:</label>
-        <input type="number" id="max-tokens" value="50">
+    <div class="pagination">
+        <a href="#" data-page="1">1</a>
+        <a href="#" data-page="2">2</a>
+        <a href="#" data-page="3">3</a>
     </div>
-    <div class="chat-container">
-        <div id="chat-messages"></div>
-        <input type="text" id="user-input" placeholder="Type your message here...">
-        <button onclick="sendMessage()">Send</button>
-    </div>
-    <div class="floating-circle" id="floating-circle">
-        <div class="expanded-content">
-            <button onclick="toggleSidebar()">Toggle Sidebar</button>
+    <div class="sidebar">
+        <div class="page" id="page1">
+            <h2>Page 1</h2>
+            <p>Content for page 1</p>
+        </div>
+        <div class="page" id="page2">
+            <h2>Page 2</h2>
+            <p>Content for page 2</p>
+        </div>
+        <div class="page" id="page3">
+            <h2>Page 3</h2>
+            <p>Content for page 3</p>
         </div>
     </div>
-    <script src="script.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const links = document.querySelectorAll('.pagination a');
+            const pages = document.querySelectorAll('.page');
+
+            links.forEach(link => {
+                link.addEventListener('click', function(event) {
+                    event.preventDefault();
+                    const page = this.getAttribute('data-page');
+                    
+                    pages.forEach(p => p.classList.remove('active'));
+                    document.getElementById('page' + page).classList.add('active');
+                });
+            });
+
+            // Set the first page as active by default
+            document.getElementById('page1').classList.add('active');
+        });
+    </script>
 </body>
 </html>

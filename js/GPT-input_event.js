@@ -9,7 +9,16 @@ textarea.addEventListener('input', function () {
 
 textarea.addEventListener('keydown', function(event) {
     if (event.key === 'Enter') {
-        event.preventDefault();
-        send();
+        if (event.ctrlKey) {
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            textarea.value = textarea.value.substring(0, start) + '\n' + textarea.value.substring(end);
+            textarea.selectionStart = textarea.selectionEnd = start + 1;
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+        } else {
+            event.preventDefault();
+            send();
+        }
     }
 });
