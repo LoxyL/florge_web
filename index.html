@@ -34,9 +34,10 @@
 				<label for="model-GPT">Model</label>
 				<br>
 				<select name="model-GPT" id="model-GPT" class="sidebar-GPT-select">
-					<option value="gpt-3.5-turbo">GPT-3.5</option>
-					<option value="gpt-4-turbo">GPT-4</option>
+					<option value="gpt-4o-mini">GPT-4o-mini</option>
 					<option value="gpt-4o">GPT-4o</option>
+					<option value="gpt-4-turbo">GPT-4</option>
+					<option value="gpt-3.5-turbo">GPT-3.5</option>
 				</select>
 			</div>
 			<div class="sidebar-GPT-max-tokens-setting">
@@ -53,7 +54,7 @@
 		
 		<div class="chat-container-GPT">
 			<div id="chat-container-GPT-messages" class="chat-container-GPT-messages-container">
-				<div class="chat-container-GPT-messages-user">
+				<!-- <div class="chat-container-GPT-messages-user">
 					<div class="chat-container-GPT-messages-user-icon">U</div>
 					<div class="chat-container-GPT-messages-user-bubble">
 						<p>Lorem ipsum, dolor sit amet consectetur adipisicing elit. Veniam accusantium quam necessitatibus quis beatae laboriosam quidem! Alias non praesentium ex! Tempore architecto enim voluptatem sequi dicta, vitae similique quo eligendi.</p>
@@ -64,7 +65,7 @@
 					<div class="chat-container-GPT-messages-bot-bubble">
 						<p>Lorem ipsum, dolor sit amet consectetur adipisicing elit. Veniam accusantium quam necessitatibus quis beatae laboriosam quidem! Alias non praesentium ex! Tempore architecto enim voluptatem sequi dicta, vitae similique quo eligendi.</p>
 					</div>
-				</div>
+				</div> -->
 			</div>
 			<div class="chat-container-GPT-input">
 				<textarea name="message-send-GPT" id="message-send-GPT" rows="1" cols="30"></textarea>
@@ -73,7 +74,7 @@
 		</div>
 	
 		<div class="chat-record-sidebar-GPT">
-			<button class="new-chat-button-GPT">New Chat</button>
+			<button class="new-chat-button-GPT" onclick="newChat()">New Chat</button>
 			<div id="record-container-GPT" class="record-container-GPT"></div>
 		</div>
 	</div>

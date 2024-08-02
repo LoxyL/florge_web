@@ -6,7 +6,7 @@ export class BotGPT {
     constructor() {
         this.systemPrompt = "";
         this.body = {
-            model: 'gpt-3.5-turbo',
+            model: 'gpt-4o-mini',
             messages: [
                 {
                     role: "system",
@@ -116,7 +116,7 @@ export class AgentGPT {
 
     async *interact(systemPrompt, contentSend) {
         this.body = {
-            model: 'gpt-3.5-turbo',
+            model: 'gpt-4o-mini',
             messages: [
                 {
                     role: "system",

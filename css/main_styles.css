@@ -262,12 +262,39 @@ body {
 .record-container-GPT {
   opacity: 0;
   visibility: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   flex: 1;
   width: 260px;
   background-color: #08110e;
   margin-bottom: 20px;
   border-radius: 20px;
+  box-sizing: border-box;
+  padding: 20px;
   transition: all 0.3s ease;
+}
+
+.record-option {
+  width: 220px;
+  height: 40px;
+  margin-bottom: 10px;
+  color: white;
+  background-color: #223329;
+  border: 0px;
+  border-radius: 4px;
+  font-family: '微软雅黑';
+  font-size: 15px;
+  transition: all 0.2s ease;
+}
+
+.record-option:hover {
+  background-color: #1f2e26;
+}
+
+.record-option:active,
+.record-option.active {
+  color: #0ec588;
 }
 
 .chat-record-sidebar-GPT:hover .record-container-GPT {
