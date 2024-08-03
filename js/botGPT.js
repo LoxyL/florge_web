@@ -63,9 +63,9 @@ export class BotGPT {
             const reader = response.body.getReader();
             const decoder = new TextDecoder('utf-8');
 
-            var response_content = "";
+            let response_content = "";
 
-            var buffer = '';
+            let buffer = '';
       
             while (true) {
                 const { done, value } = await reader.read();
@@ -109,14 +109,29 @@ export class BotGPT {
 
 export class AgentGPT {
     constructor() {
+        this.model = 'gpt-4o-mini';
+        this.maxTokens = 200;
+        this._refresh();
+        console.log("[INFO][AGENT]Done creating new agent.");
+    }
+    
+    _getParams() {
         this.src = document.getElementById('config-source-GPT').value;
         this.apiKey = document.getElementById('config-apikey-GPT').value;
-        console.log("[INFO][AGENT]Done creating new agent.");
+    }
+
+    _refresh() {
+        this._getParams();
+        this._headers =  {
+            'Authorization': `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json'
+        };
+        console.log("[INFO][AGENT]Current params:\n[INFO][AGENT]\tmodel: ", this.model, "\n[INFO][AGENT]\tmax_tokens: ", this.maxTokens);
     }
 
     async *interact(systemPrompt, contentSend) {
         this.body = {
-            model: 'gpt-4o-mini',
+            model: this.model,
             messages: [
                 {
                     role: "system",
@@ -127,7 +142,7 @@ export class AgentGPT {
                     content: contentSend
                 }
             ],
-            max_tokens: 200,
+            max_tokens: this.maxTokens,
             stream: true
         }
         console.log("[INFO][AGENT]Current context: ", this.body);
@@ -147,9 +162,9 @@ export class AgentGPT {
             const reader = response.body.getReader();
             const decoder = new TextDecoder('utf-8');
 
-            var response_content = "";
+            let response_content = "";
 
-            var buffer = '';
+            let buffer = '';
       
             while (true) {
                 const { done, value } = await reader.read();

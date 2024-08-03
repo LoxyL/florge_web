@@ -7,11 +7,12 @@ export class DialogGPT {
 		this.agent = new AgentGPT();
 		this.current_record_id = 0;
 		this._loadRecordList();
+		this.useAgent = true;
 	}
 
 	_getInputGPT() {
-		var inputElement = document.getElementById("message-send-GPT");
-		var inputValue = inputElement.value;
+		let inputElement = document.getElementById("message-send-GPT");
+		let inputValue = inputElement.value;
 		inputElement.value = "";
 		
 		inputElement.style.height = 'auto';
@@ -30,7 +31,7 @@ export class DialogGPT {
 			}
 		});
 
-		var html = md.render(text);
+		let html = md.render(text);
 		return html;
 	}
 
@@ -38,7 +39,7 @@ export class DialogGPT {
 		this.dialog_num = 0;
 		const container = document.getElementById('chat-container-GPT-messages');
 		container.innerHTML = '';
-		this.bot.body.messages = [this.bot.body.messages[0]];
+		this.bot = new BotGPT();
 	}
 
 	_send_message(inputValue) {
@@ -59,11 +60,13 @@ export class DialogGPT {
 		
 		const chatContainer = document.getElementById("chat-container-GPT-messages");
 		chatContainer.appendChild(userSet);
+
+		chatContainer.scrollTop = chatContainer.scrollHeight;
 	}
 
 	async _receive_message(inputValue) {
-		var contentIter = this.bot.interact(inputValue);
-		var receive_content = "";
+		let contentIter = this.bot.interact(inputValue);
+		let receive_content = "";
 		
 		const chatContainer = document.getElementById("chat-container-GPT-messages");
 
@@ -87,12 +90,14 @@ export class DialogGPT {
 			if (piece == undefined) continue;
 			receive_content += piece;
 			botBubble.innerHTML = this._processTextDisplay(receive_content);
+
+			chatContainer.scrollTop = chatContainer.scrollHeight;
 		}
 		console.log("[INFO]Done receive content.");
 	}
 
 	async send() {
-		var inputValue = this._getInputGPT();
+		let inputValue = this._getInputGPT();
 		if(inputValue !== ""){
 			console.log("[INFO]Send content: ", inputValue);
 			this._send_message(inputValue);
@@ -100,19 +105,19 @@ export class DialogGPT {
 			await this._receive_message(inputValue);
 			this.dialog_num += 1;
 			this._saveRecordContent();
+			this._nameRecord();
 		} 
 	}
 
 	_loadRecordList() {
 		const recordList = JSON.parse(localStorage.getItem('chat-tool-web-record-list-GPT.json'));
-		if(!recordList){
+		if(!recordList || recordList.recordIds.length == 0){
 			const newRecordList = {
 				recordIds: [0],
 				recordTitles: ['New Chat'],
-				recordContents: [{}]
+				recordContents: [[]]
 			};
 			localStorage.setItem('chat-tool-web-record-list-GPT.json', JSON.stringify(newRecordList));
-			this._saveRecordContent();
 			this._loadRecordList();
 			return;
 		}
@@ -125,7 +130,14 @@ export class DialogGPT {
 			newRecord.setAttribute('id', `record-GPT-${recordList.recordIds[i]}`);
 			newRecord.setAttribute('class', 'record-option');
 			newRecord.setAttribute('onclick', `switchRecord(${recordList.recordIds[i]})`)
-			newRecord.innerHTML = recordList.recordTitles[i];
+			newRecord.innerHTML = `<div>${recordList.recordTitles[i]}</div>`;
+			
+			let deleteButton = document.createElement('button');
+			deleteButton.setAttribute('class', 'record-option-delete');
+			deleteButton.setAttribute('onclick', `deleteRecord(${recordList.recordIds[i]})`)
+			deleteButton.innerHTML = '&times';
+
+			newRecord.appendChild(deleteButton);
 			recordContainer.appendChild(newRecord);
 		}
 
@@ -134,6 +146,7 @@ export class DialogGPT {
 
 	_saveRecordContent() {
 		let context = this.bot.body.messages;
+		context.shift();
 		const recordList = JSON.parse(localStorage.getItem('chat-tool-web-record-list-GPT.json'));
 		let index = recordList.recordIds.indexOf(this.current_record_id);
 		recordList.recordContents[index] = context;
@@ -153,17 +166,31 @@ export class DialogGPT {
 		this._loadRecordContent();
 	}
 
+	deleteRecord(id) {
+		const recordList = JSON.parse(localStorage.getItem('chat-tool-web-record-list-GPT.json'));
+		let index = recordList.recordIds.indexOf(id);
+		recordList.recordIds.splice(index, 1);
+		recordList.recordTitles.splice(index, 1);
+		recordList.recordContents.splice(index, 1);
+		localStorage.setItem('chat-tool-web-record-list-GPT.json', JSON.stringify(recordList));
+		this._loadRecordList();
+	}
+
 	switchRecord(id){
-		this.current_record_id = id;
-		this._loadRecordContent();
+		try {
+			this.current_record_id = id;
+			this._loadRecordContent();
 
-		const options = document.getElementsByClassName('record-option');
-		for(let i=0; i<options.length; i++){
-			options[i].className = options[i].className.replace(' active', '');
+			const options = document.getElementsByClassName('record-option');
+			for(let i=0; i<options.length; i++){
+				options[i].className = options[i].className.replace(' active', '');
+			}
+
+			const option = document.getElementById(`record-GPT-${id}`);
+			option.className += ' active';
+		} catch (error) {
+			this._loadRecordList();
 		}
-
-		const option = document.getElementById(`record-GPT-${id}`);
-		option.className += ' active';
 	}
 	
 	_loadRecordContent() {
@@ -171,7 +198,7 @@ export class DialogGPT {
 		const recordList = JSON.parse(localStorage.getItem('chat-tool-web-record-list-GPT.json'));
 		let index = recordList.recordIds.indexOf(this.current_record_id);
 		let recordContents = recordList.recordContents[index];
-		this.bot.body.messages = recordContents;
+		this.bot.body.messages.push(...recordContents);
 		for(let i in recordContents){
 			const piece = recordContents[i];
 			if(piece.role == 'user'){
@@ -213,6 +240,33 @@ export class DialogGPT {
 				chatContainer.appendChild(botSet);
 			}
 			this.dialog_num += 1;
+		}
+	}
+
+	async _nameRecord() {
+		if(this.useAgent){
+			const systemPrompt = "Provide an appropriate title based on the user\'s JSON-formatted conversation records. The title should not exceed 20 words and should be returned directly. Return the content in the primary language of the conversation.";
+
+			const recordList = JSON.parse(localStorage.getItem('chat-tool-web-record-list-GPT.json'));
+			const index = recordList.recordIds.indexOf(this.current_record_id);
+			const recordContents = recordList.recordContents[index];
+
+			const record = document.getElementById(`record-GPT-${this.current_record_id}`);
+			const recordTitle = record.children[0];
+
+			if(recordTitle.innerHTML !== "New Chat") return;
+
+			let title = '';
+			const contentIter = this.agent.interact(systemPrompt, JSON.stringify(recordContents));
+			
+			for await (const piece of contentIter) {
+				if (piece == undefined) continue;
+				title += piece;
+				recordTitle.innerHTML = title;
+			}
+
+			recordList.recordTitles[index] = title;
+			localStorage.setItem('chat-tool-web-record-list-GPT.json', JSON.stringify(recordList));
 		}
 	}
 }

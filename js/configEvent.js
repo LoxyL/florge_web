@@ -26,7 +26,7 @@ function configLoad() {
 }
 
 function configOpenTab(event, tabName) {
-    var i, tabcontent, tabbuttons;
+    let i, tabcontent, tabbuttons;
     
     tabcontent = document.getElementsByClassName("config-tab-content");
     for (i = 0; i < tabcontent.length; i++) {
