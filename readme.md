@@ -26,7 +26,7 @@ To get started with this project, you need to follow these steps:
 
     ```sh
     git clone https://github.com/LoxyL/chat_tool_web.git
-    cd chat-tool-web
+    cd chat_tool_web
     ```
 
 2. Open the `index.html` file in your web browser to launch the application.
