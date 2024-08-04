@@ -62,3 +62,34 @@
     max-width: 70%;
 }
 
+.chat-container-GPT-messages-bot-bubble a {
+    color: #1bda9a;
+}
+
+.chat-container-GPT-messages-bot-bubble pre {
+    box-sizing: border-box;
+    padding: 20px;
+    border-radius: 20px 20px;
+    background-color: #000000;
+    overflow-x: auto;
+    font-size: 15px;
+    max-width: 100%;
+    white-space: pre-wrap;
+}
+.chat-container-GPT-messages-bot-bubble pre::-webkit-scrollbar {
+    width: 8px;
+    height: 6px;
+}
+  
+.chat-container-GPT-messages-bot-bubble pre::-webkit-scrollbar-track {
+    background: #000000;
+    border-radius: 4px;
+}
+  
+.chat-container-GPT-messages-bot-bubble pre::-webkit-scrollbar-thumb {
+    background: #3d3d3d;
+    border-radius: 4px;
+}
+.chat-container-GPT-messages-bot-bubble pre::-webkit-scrollbar-thumb:hover {
+    background: #535353;
+}

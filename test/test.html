@@ -1,97 +1,140 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sidebar Pagination with JavaScript</title>
+    <title>右键复制示例</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.1.0/styles/dracula.min.css">
     <style>
         body {
-            display: flex;
-            height: 100vh;
-            margin: 0;
             font-family: Arial, sans-serif;
+            background-color: #121212; /* 网页背景色 */
+            color: #ffffff; /* 文字颜色 */
+            margin: 0; /* 去除默认边距 */
+            padding: 20px; /* 添加内边距 */
         }
 
-        .sidebar {
-            width: 200px;
-            background-color: #f4f4f4;
-            overflow: hidden;
-            position: relative;
+        .code-container {
+            background-color: #1e1e1e; /* 代码容器背景色 */
+            border-radius: 5px; /* 边框圆角 */
+            padding: 10px; /* 内边距 */
+            position: relative; /* 位置相对 */
+            max-width: 600px; /* 最大宽度 */
         }
 
-        .page {
-            display: none;
-            width: 100%;
-            height: 100%;
+        pre {
+            margin: 0; /* 去除默认外边距 */
+            white-space: pre-wrap; /* 支持代码换行 */
+            max-height: 200px; /* 最大高度 */
+            overflow: auto; /* 允许溢出时滚动 */
         }
 
-        .page.active {
-            display: block;
+        /* 自定义右键菜单 */
+        .context-menu {
+            display: none; /* 默认隐藏 */
+            position: absolute; /* 绝对定位 */
+            background: #444; /* 背景色 */
+            border-radius: 5px; /* 圆角 */
+            box-shadow: 0 0 10px rgba(0,0,0,0.5); /* 阴影效果 */
+            z-index: 1000; /* 在最上层 */
         }
 
-        .pagination {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            width: 50px;
-            background-color: #333;
-            color: white;
+        .context-menu ul {
+            list-style: none; /* 去掉列表样式 */
+            padding: 10px; /* 内边距 */
+            margin: 0; /* 外边距 */
         }
 
-        .pagination a {
-            color: white;
-            text-decoration: none;
-            padding: 10px;
-            transition: background-color 0.3s;
+        .context-menu ul li {
+            padding: 5px 10px; /* 列表项内边距 */
+            cursor: pointer; /* 鼠标悬停时显示为手型 */
         }
 
-        .pagination a:hover {
-            background-color: #555;
+        .context-menu ul li:hover {
+            background: #007BFF; /* 悬停状态背景色 */
         }
 
-        .pagination a:focus {
-            background-color: #777;
+        button {
+            margin-top: 10px; /* 按钮顶部间距 */
+            background-color: #007BFF; /* 按钮颜色 */
+            color: white; /* 按钮文字颜色 */
+            border: none; /* 无边框 */
+            border-radius: 5px; /* 按钮圆角 */
+            padding: 5px 10px; /* 按钮内边距 */
+            cursor: pointer; /* 鼠标悬停时显示为手型 */
+        }
+
+        button:hover {
+            background-color: #0056b3; /* 按钮悬停效果 */
         }
     </style>
 </head>
 <body>
-    <div class="pagination">
-        <a href="#" data-page="1">1</a>
-        <a href="#" data-page="2">2</a>
-        <a href="#" data-page="3">3</a>
+    <div class="code-container">
+        <h2>示例代码</h2>
+        <p>右键点击代码块以复制代码：</p>
+        <pre><code id="code-block" class="language-javascript">
+// 这里是一些代码示例
+function helloWorld() {
+    console.log("Hello, world!");
+}
+
+helloWorld();
+        </code></pre>
+        <button id="copy-button">复制代码</button>
     </div>
-    <div class="sidebar">
-        <div class="page" id="page1">
-            <h2>Page 1</h2>
-            <p>Content for page 1</p>
-        </div>
-        <div class="page" id="page2">
-            <h2>Page 2</h2>
-            <p>Content for page 2</p>
-        </div>
-        <div class="page" id="page3">
-            <h2>Page 3</h2>
-            <p>Content for page 3</p>
-        </div>
+
+    <!-- 自定义右键菜单 -->
+    <div class="context-menu" id="context-menu">
+        <ul>
+            <li id="copy-context">复制代码</li>
+        </ul>
     </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/markdown-it/12.3.2/markdown-it.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.1.0/highlight.min.js"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const links = document.querySelectorAll('.pagination a');
-            const pages = document.querySelectorAll('.page');
+        // 对代码进行高亮处理
+        hljs.highlightElement(document.getElementById('code-block'));
 
-            links.forEach(link => {
-                link.addEventListener('click', function(event) {
-                    event.preventDefault();
-                    const page = this.getAttribute('data-page');
-                    
-                    pages.forEach(p => p.classList.remove('active'));
-                    document.getElementById('page' + page).classList.add('active');
+        // 右键菜单
+        const contextMenu = document.getElementById('context-menu');
+        const codeBlock = document.getElementById('code-block');
+
+        // 右键点击事件
+        codeBlock.addEventListener('contextmenu', function(event) {
+            event.preventDefault(); // 阻止默认右键菜单
+            contextMenu.style.display = 'block'; // 显示自定义菜单
+            contextMenu.style.left = `${event.pageX}px`; // 设置菜单的位置
+            contextMenu.style.top = `${event.pageY}px`;
+        });
+
+        // 点击复制代码
+        document.getElementById('copy-context').addEventListener('click', function() {
+            const code = codeBlock.innerText; // 获取代码
+            navigator.clipboard.writeText(code) // 复制到剪贴板
+                .then(() => {
+                    alert('代码已复制到剪贴板！');
+                })
+                .catch(err => {
+                    console.error('复制失败:', err);
                 });
-            });
+            contextMenu.style.display = 'none'; // 隐藏自定义菜单
+        });
 
-            // Set the first page as active by default
-            document.getElementById('page1').classList.add('active');
+        // 隐藏自定义菜单
+        window.addEventListener('click', function() {
+            contextMenu.style.display = 'none'; // 隐藏菜单
+        });
+
+        // 复制代码的功能
+        document.getElementById('copy-button').addEventListener('click', function() {
+            const code = codeBlock.innerText;
+            navigator.clipboard.writeText(code).then(() => {
+                alert('代码已复制到剪贴板！');
+            }).catch(err => {
+                console.error('复制失败:', err);
+            });
         });
     </script>
 </body>
