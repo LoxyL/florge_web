@@ -42,6 +42,39 @@ export class DialogGPT {
 		this.bot = new BotGPT();
 	}
 
+	_codeInteract() {
+		const menu = document.getElementById('code-interact');
+
+		const codeBlocks = document.querySelectorAll('.chat-container-GPT-messages-bot-bubble pre');
+		let currentCodeBlock;
+		
+		codeBlocks.forEach(block => {
+			block.addEventListener('contextmenu', function(event) {
+				event.preventDefault();
+				menu.style.display = 'block';
+				menu.style.opacity = '1';
+				menu.style.visibility = 'visible';
+				menu.style.left = `${event.pageX}px`;
+				menu.style.top = `${event.pageY}px`;
+				currentCodeBlock = block;
+			});
+		});
+
+		document.getElementById('code-copy').addEventListener('click', function() {
+			const code = currentCodeBlock.innerText;
+			navigator.clipboard.writeText(code)
+				.catch(err => {
+					console.error('Copy failed:', err);
+				});
+			menu.style.display = 'none';
+		});
+
+		window.addEventListener('click', function() {
+			menu.style.opacity = '0';
+			menu.style.visibility = 'hidden';
+		});
+	}
+
 	_send_message(inputValue) {
 		const userSet = document.createElement("div");
 		userSet.setAttribute("id", 'chat-container-GPT-messages-user-'+this.dialog_num);
@@ -81,6 +114,7 @@ export class DialogGPT {
 		const botBubble = document.createElement("div");
 		botBubble.setAttribute("class", "chat-container-GPT-messages-bot-bubble");
 		botBubble.innerHTML = this._processTextDisplay("...");
+		chatContainer.scrollTop = chatContainer.scrollHeight;
 
 		botSet.appendChild(botIcon);
 		botSet.appendChild(botBubble);
@@ -93,6 +127,8 @@ export class DialogGPT {
 
 			chatContainer.scrollTop = chatContainer.scrollHeight;
 		}
+
+		this._codeInteract();
 		console.log("[INFO]Done receive content.");
 	}
 
@@ -241,6 +277,8 @@ export class DialogGPT {
 			}
 			this.dialog_num += 1;
 		}
+
+		this._codeInteract();
 	}
 
 	async _nameRecord() {

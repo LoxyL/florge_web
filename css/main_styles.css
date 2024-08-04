@@ -185,11 +185,29 @@ body {
   color: #ffffff;
   box-sizing: border-box;
   resize: none;
-  overflow: hidden;
+  overflow-y: auto;
   font-family: '微软雅黑';
   font-size: 15px;
   border: 2px, solid, #333333;
   transition: all 0.2s ease;
+}
+
+.chat-container-GPT-input textarea::-webkit-scrollbar {
+  width: 8px;
+  height: 6px;
+}
+
+.chat-container-GPT-input textarea::-webkit-scrollbar-track {
+  background: #333333;
+  border-radius: 4px;
+}
+
+.chat-container-GPT-input textarea::-webkit-scrollbar-thumb {
+  background: #222222;
+  border-radius: 4px;
+}
+.chat-container-GPT-input textarea::-webkit-scrollbar-thumb:hover {
+  background: #111111;
 }
 
 .chat-container-GPT-input textarea:hover,
