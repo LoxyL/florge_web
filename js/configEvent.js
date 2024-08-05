@@ -1,4 +1,4 @@
-function configSave() {
+async function configSave() {
     const urlGPT = document.getElementById('config-source-GPT').value;
     const apikeyGPT = document.getElementById('config-apikey-GPT').value;
 
@@ -7,21 +7,30 @@ function configSave() {
         apikeyGPT: apikeyGPT
     }
 
-    localStorage.setItem('chat-tool-web-config.json', JSON.stringify(config));
-
-    alert('Done saving configurations.');
+    try {
+        const response = await fetch('http://localhost:30962/config', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(config)
+        });
+        const data = await response.text();
+        console.log('[INFO]', data);
+    } catch (error) {
+        console.error('Error:', error);
+    }
 }
 
-function configLoad() {
-    const configJson = localStorage.getItem('chat-tool-web-config.json');
-
-    if (configJson) {
-        const config = JSON.parse(configJson);
+async function configLoad() {
+    try {
+        const response = await fetch('http://localhost:30962/config');
+        const config = await response.json();
 
         document.getElementById('config-source-GPT').value = config.urlGPT;
         document.getElementById('config-apikey-GPT').value = config.apikeyGPT;
-    } else {
-        alert('No configurations found.');
+    } catch (error) {
+        alert('Fail loading Configurations.');
     }
 }
 

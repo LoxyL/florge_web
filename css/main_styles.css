@@ -339,7 +339,7 @@ body {
 }
 
 .record-option:hover {
-  min-height: 100px;
+  min-height: 120px;
   background-color: #1f2e26;
 }
 
@@ -352,7 +352,7 @@ body {
   opacity: 0;
   visibility: hidden;
   margin-top: auto;
-  margin-bottom: 5px;
+  margin-bottom: 3px;
   height: 20px;
   width: 150px;
   display: flex;
