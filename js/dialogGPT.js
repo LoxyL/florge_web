@@ -124,6 +124,12 @@ export class DialogGPT {
 			if (piece == undefined) continue;
 			receive_content += piece;
 			botBubble.innerHTML = this._processTextDisplay(receive_content);
+			renderMathInElement(botSet, {
+				delimiters: [
+					{left: "[", right: "]", display: true},
+					{left: "(", right: ")", display: false}
+				]
+			});
 
 			chatContainer.scrollTop = chatContainer.scrollHeight;
 		}
@@ -300,6 +306,13 @@ export class DialogGPT {
 				botSet.appendChild(botIcon);
 				botSet.appendChild(botBubble);
 				chatContainer.appendChild(botSet);
+				
+				renderMathInElement(botSet, {
+					delimiters: [
+						{left: "[", right: "]", display: true},
+						{left: "(", right: ")", display: false}
+					]
+				});
 			}
 			this.dialog_num += 1;
 		}
