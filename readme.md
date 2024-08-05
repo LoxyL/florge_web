@@ -27,7 +27,7 @@ To get started with this project, you need to follow these steps:
 
 ### Installation
 
-1. **Install Node.js**: 
+1. **Install Node.js**:
    - Download and install Node.js from the [official website](https://nodejs.org/). This will also install npm (Node Package Manager).
 
 2. **Clone this repository to your local machine**:
@@ -37,7 +37,7 @@ To get started with this project, you need to follow these steps:
     cd chat_tool_web
     ```
 
-3. **Install Express**: 
+3. **Install Express**:
    - Navigate to the project directory and run the following command to install the Express library:
 
     ```sh
@@ -102,6 +102,6 @@ Alternatively, you can obtain an API key from OpenAI-HK or DeepBrick, which are 
 
 As this is my first project, any feedback and contributions are greatly appreciated. If you have any suggestions or improvements, please feel free to open an issue or submit a pull request.
 
---- 
+---
 
 Feel free to modify any sections as per your requirements!
