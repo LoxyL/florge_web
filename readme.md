@@ -1,7 +1,3 @@
-Here's an updated version of your README that includes the installation of Node.js and the Express library, along with the new startup instructions using `start.bat`.
-
----
-
 # AI Chat Web Application
 
 Welcome to my AI Chat Web Application! This is my first attempt at creating a web application as a self-taught programmer. I hope you find it useful and easy to use.
