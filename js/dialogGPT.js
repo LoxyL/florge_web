@@ -130,8 +130,8 @@ export class DialogGPT {
 			botBubble.innerHTML = this._processTextDisplay(receive_content);
 			renderMathInElement(botSet, {
 				delimiters: [
-					{left: "[", right: "]", display: true},
-					{left: "(", right: ")", display: false}
+					{left: "$$", right: "$$", display: true},
+					{left: "$", right: "$", display: false}
 				]
 			});
 
@@ -311,8 +311,8 @@ export class DialogGPT {
 				
 				renderMathInElement(botSet, {
 					delimiters: [
-						{left: "[", right: "]", display: true},
-						{left: "(", right: ")", display: false}
+						{left: "$$", right: "$$", display: true},
+						{left: "$", right: "$", display: false}
 					]
 				});
 			}
