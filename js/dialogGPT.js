@@ -51,7 +51,11 @@ export class DialogGPT {
 		codeBlocks.forEach(block => {
 			block.addEventListener('contextmenu', function(event) {
 				event.preventDefault();
-				menu.style.display = 'block';
+				const nameContainer = menu.firstElementChild;
+				let name = block.firstChild.className.replace('language-', '');
+				// console.log(nameContainer.innerHTML);
+				nameContainer.innerHTML = name;
+				menu.style.display = 'flex';
 				menu.style.opacity = '1';
 				menu.style.visibility = 'visible';
 				menu.style.left = `${event.pageX}px`;
@@ -269,6 +273,7 @@ export class DialogGPT {
 		this.bot.body.messages.push(...recordContents);
 		for(let i in recordContents){
 			const piece = recordContents[i];
+			const chatContainer = document.getElementById("chat-container-GPT-messages");
 			if(piece.role == 'user'){
 				const userSet = document.createElement("div");
 				userSet.setAttribute("id", 'chat-container-GPT-messages-user-'+this.dialog_num);
@@ -285,12 +290,9 @@ export class DialogGPT {
 				userSet.appendChild(userIcon);
 				userSet.appendChild(userBubble);
 				
-				const chatContainer = document.getElementById("chat-container-GPT-messages");
 				chatContainer.appendChild(userSet);
 			}
 			if(piece.role == 'assistant'){
-				const chatContainer = document.getElementById("chat-container-GPT-messages");
-
 				const botSet = document.createElement("div");
 				botSet.setAttribute("id", 'chat-container-GPT-messages-bot-'+this.dialog_num);
 				botSet.setAttribute("class", "chat-container-GPT-messages-bot");
@@ -314,6 +316,8 @@ export class DialogGPT {
 					]
 				});
 			}
+
+			chatContainer.scrollTop = chatContainer.scrollHeight;
 			this.dialog_num += 1;
 		}
 

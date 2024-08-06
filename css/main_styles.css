@@ -74,7 +74,10 @@ body {
 }
 
 .sidebar-title {
+  appearance: none;
+  text-decoration: none;
   display: flex;
+  margin: 30px;
   align-items: center;
   justify-content: center;
   color: white;
@@ -84,6 +87,13 @@ body {
   border-radius: 30px;
   font-family: 'Bauhaus 93';
   font-size: 30px;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.sidebar-title:hover {
+  transform: scale(1.1);
+  box-shadow: 0px 0px 10px black;
 }
 
 .sidebar-GPT-select {
@@ -528,6 +538,7 @@ body {
   font-size: 20px;
   font-family: 'Berlin Sans FB';
   transition: all 0.3s ease;
+  cursor: pointer;
 }
 
 .config-button:hover {
