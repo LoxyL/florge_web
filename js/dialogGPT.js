@@ -271,7 +271,6 @@ export class DialogGPT {
 		let index = recordList.recordIds.indexOf(this.current_record_id);
 		let recordContents = recordList.recordContents[index];
 		for(let i=0; i<recordContents.length; i++){
-			console.log(this.bot.body.messages);
 			this.bot.body.messages.push(recordContents[i]);
 		}
 		
