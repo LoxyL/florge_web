@@ -216,7 +216,7 @@ export class DialogGPT {
 	}
 
 	async _saveRecordContent() {
-		let context = this.bot.body.messages;
+		let context = JSON.parse(JSON.stringify(this.bot.body.messages));
 		context.shift();
 		const recordList = await this._getRecordData();;
 		let index = recordList.recordIds.indexOf(this.current_record_id);
@@ -233,8 +233,8 @@ export class DialogGPT {
 		recordList.recordTitles.unshift('New Chat');
 		recordList.recordContents.unshift([]);
 		await this._saveRecordData(recordList);
-		this._saveRecordContent();
-		this._loadRecordList();
+		await this._saveRecordContent();
+		await this._loadRecordList();
 		this._loadRecordContent();
 	}
 
@@ -270,7 +270,11 @@ export class DialogGPT {
 		const recordList = await this._getRecordData();
 		let index = recordList.recordIds.indexOf(this.current_record_id);
 		let recordContents = recordList.recordContents[index];
-		this.bot.body.messages.push(...recordContents);
+		for(let i=0; i<recordContents.length; i++){
+			console.log(this.bot.body.messages);
+			this.bot.body.messages.push(recordContents[i]);
+		}
+		
 		for(let i in recordContents){
 			const piece = recordContents[i];
 			const chatContainer = document.getElementById("chat-container-GPT-messages");
