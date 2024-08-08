@@ -227,7 +227,8 @@ body {
   border: 2px, solid, #0b6b4b;
 }
 
-.chat-container-GPT-input button {
+#send-button {
+  display: block;
   color: white;
   background-color: #0b6b4b;
   margin-left: 20px;
@@ -238,14 +239,38 @@ body {
   font-family: 'Times New Roman', Times, serif;
   font-size: 15px;
   transition: background-color 0.2s ease;
+  cursor: pointer;
 }
 
-.chat-container-GPT-input button:hover {
+#send-button:hover {
   background-color: #109c6e;
 }
 
-.chat-container-GPT-input button:active {
+#send-button:active {
   background-color: #074732;
+}
+
+#stop-button {
+  display: none;
+  color: white;
+  background-color: #811f1f;
+  margin-left: 20px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 20px;
+  font-family: 'Times New Roman', Times, serif;
+  font-size: 15px;
+  transition: background-color 0.2s ease;
+  cursor: pointer;
+}
+
+#stop-button:hover {
+  background-color: #9b4646;
+}
+
+#stop-button:active {
+  background-color: #421313;
 }
 
 .chat-record-sidebar-GPT {

@@ -142,9 +142,25 @@ export class DialogGPT {
 		console.log("[INFO]Done receive content.");
 	}
 
+	streamStop() {
+		this.bot.streamAbort();
+	}
+
+	_switchToStopButton() {
+		document.getElementById("send-button").style.display = 'none';
+		document.getElementById("stop-button").style.display = 'block';
+	}
+
+	_switchToSendButton() {
+		document.getElementById("send-button").style.display = 'block';
+		document.getElementById("stop-button").style.display = 'none';
+	}
+
 	async send() {
 		let inputValue = this._getInputGPT();
 		if(inputValue !== ""){
+			window.isInteracting = true;
+			this._switchToStopButton();
 			console.log("[INFO]Send content: ", inputValue);
 			this._send_message(inputValue);
 			this.dialog_num += 1;
@@ -152,6 +168,8 @@ export class DialogGPT {
 			this.dialog_num += 1;
 			await this._saveRecordContent();
 			await this._nameRecord();
+			this._switchToSendButton();
+			window.isInteracting = false;
 		} 
 	}
 

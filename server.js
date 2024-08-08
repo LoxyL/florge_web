@@ -55,7 +55,7 @@ app.post('/gpt/record', (req, res) => {
             return res.status(500).send('Error saving Records');
         }
         res.send('Done saving Records');
-        console.log('Saving records.');
+        // console.log('Saving records.');
     });
 })
 

@@ -4,6 +4,7 @@
 
 export class BotGPT {
     constructor() {
+        this.streamControl = null;
         this.systemPrompt = `
             Please output text where mathematical expressions are clearly distinguished by format. 
             Inline formulas should be enclosed in '$...$', and block-level formulas should be enclosed in '$$...$$' or '\\[...\\]'. 
@@ -49,7 +50,17 @@ export class BotGPT {
         console.log("[INFO]Current params:\n[INFO]\tmodel: ", this.model, "\n[INFO]\tmax_tokens: ", this.maxTokens);
     }
 
+    streamAbort() {
+        if(this.streamControl){
+            this.streamControl.abort();
+            this.streamControl = null;
+        }
+    }
+
     async *interact(contentSend) {
+        this.streamControl = new AbortController();
+        let signal = this.streamControl.signal;
+
         console.log("[INFO]Starting interaction.");
         this._refresh();
         const messageSend = {
@@ -58,11 +69,14 @@ export class BotGPT {
         }
         this.body.messages.push(messageSend);
         console.log("[INFO]Current context: ", this.body);
+
+        let response_content = "";
         try {
             const response = await fetch(this.src, {
                 method: 'POST',
                 headers: this._headers,
-                body: JSON.stringify(this.body)
+                body: JSON.stringify(this.body),
+                signal
             });
 
             console.log("[INFO]Response: ", response);
@@ -73,8 +87,6 @@ export class BotGPT {
 
             const reader = response.body.getReader();
             const decoder = new TextDecoder('utf-8');
-
-            let response_content = "";
 
             let buffer = '';
       
@@ -104,17 +116,22 @@ export class BotGPT {
                     }
                 }
             }
-            
-            const messageReceive = {
-                role: 'assistant',
-                content: response_content
-            }
-
-            this.body.messages.push(messageReceive);
 
         } catch (error) {
-            console.error(`[INFO]Error interacting with ${this.model}:`, error);
+            if (error.name === 'AbortError') {
+                console.log("[INFO]Interaction was aborted.");
+            } else {
+                console.error(`[INFO]Error interacting with ${this.model}:`, error);
+            }
+            
         }
+        
+        const messageReceive = {
+            role: 'assistant',
+            content: response_content
+        }
+
+        this.body.messages.push(messageReceive);
     }
 }
 
