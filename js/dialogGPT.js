@@ -246,7 +246,7 @@ export class DialogGPT {
 		this._clear();
 		const recordList = await this._getRecordData();
 		console.log('Done');
-		this.current_record_id += 1;
+		this.current_record_id = recordList.recordIds[0] + 1;
 		recordList.recordIds.unshift(this.current_record_id);
 		recordList.recordTitles.unshift('New Chat');
 		recordList.recordContents.unshift([]);
