@@ -113,7 +113,7 @@
 }
 
 .chat-container-GPT-messages-bot-bubble .code-block:not(#raw-message):hover {
-    transform: translate(-2px, -2px);
+    transform: scale(1.005);
     box-shadow: 2px 2px 4px #111111;
 }
 
