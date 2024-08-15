@@ -51,6 +51,9 @@ export class DialogGPT {
 		codeBlocks.forEach(block => {
 			let timer;
 
+			const name = block.firstChild.className.replace('language-', '');
+			block.setAttribute('code-language', name);
+
 			block.addEventListener('contextmenu', function(event) {
 				event.preventDefault();
 			});
@@ -59,8 +62,6 @@ export class DialogGPT {
 				if(event.button === 2){
 					block.classList.add('active');
 
-					const nameContainer = menu.firstElementChild;
-					let name = block.firstChild.className.replace('language-', '');
 					
 					timer = setTimeout(() => {
 						navigator.clipboard.writeText(block.textContent)

@@ -68,10 +68,10 @@
     color: #1bda9a;
 }
 
-.chat-container-GPT-messages-bot-bubble pre,
-.chat-container-GPT-messages-user-bubble pre {
+.chat-container-GPT-messages-bot-bubble pre {
+    position: relative;
     box-sizing: border-box;
-    padding: 20px;
+    padding: 30px 20px 20px 20px;
     border: #000000 3px solid;
     border-radius: 25px;
     background-color: #000000;
@@ -80,6 +80,13 @@
     max-width: 100%;
     white-space: pre-wrap;
     transition: 0.3s;
+}
+
+.chat-container-GPT-messages-bot-bubble pre::after {
+    position: absolute;
+    right: 20px;
+    top: 5px;
+    content: attr(code-language);
 }
 
 .chat-container-GPT-messages-bot-bubble pre:hover {
@@ -103,11 +110,11 @@
 }
 
 
-.chat-container-GPT-messages-bot-bubble:hover,
+/* .chat-container-GPT-messages-bot-bubble:hover,
 .chat-container-GPT-messages-user-bubble:hover {
     transform: translate(-1px, -1px);
     box-shadow: 2px 2px 4px #000000;
-}
+} */
 
 .chat-container-GPT-messages-bot-bubble pre::-webkit-scrollbar,
 .chat-container-GPT-messages-user-bubble pre::-webkit-scrollbar
