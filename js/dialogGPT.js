@@ -49,34 +49,42 @@ export class DialogGPT {
 		let currentCodeBlock;
 		
 		codeBlocks.forEach(block => {
+			let timer;
+
 			block.addEventListener('contextmenu', function(event) {
 				event.preventDefault();
-				const nameContainer = menu.firstElementChild;
-				let name = block.firstChild.className.replace('language-', '');
-				// console.log(nameContainer.innerHTML);
-				nameContainer.innerHTML = name;
-				menu.style.display = 'flex';
-				menu.style.opacity = '1';
-				menu.style.visibility = 'visible';
-				menu.style.left = `${event.pageX}px`;
-				menu.style.top = `${event.pageY}px`;
-				currentCodeBlock = block;
 			});
+
+			block.addEventListener('mousedown', function(event) {
+				if(event.button === 2){
+					block.classList.add('active');
+
+					const nameContainer = menu.firstElementChild;
+					let name = block.firstChild.className.replace('language-', '');
+					
+					timer = setTimeout(() => {
+						navigator.clipboard.writeText(block.textContent)
+							.then(() => {
+								block.classList.remove('active');
+								block.classList.add('succeed');
+							})
+							.catch(err => {
+								block.classList.remove('active');
+								block.classList.add('fail');
+								console.error("[INFO]Code copy error:", err);
+							})
+					}, 1000)
+				}
+			});
+
+			document.addEventListener('mouseup', function() {
+				clearTimeout(timer);
+				block.classList.remove('active');
+				block.classList.remove('succeed');
+				block.classList.remove('fail');
+			})
 		});
 
-		document.getElementById('code-copy').addEventListener('click', function() {
-			const code = currentCodeBlock.innerText;
-			navigator.clipboard.writeText(code)
-				.catch(err => {
-					console.error('Copy failed:', err);
-				});
-			menu.style.display = 'none';
-		});
-
-		window.addEventListener('click', function() {
-			menu.style.opacity = '0';
-			menu.style.visibility = 'hidden';
-		});
 	}
 
 	_send_message(inputValue) {

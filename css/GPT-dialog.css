@@ -28,6 +28,7 @@
     padding: 0px 20px;
     border-radius: 25px;
     max-width: 70%;
+    transition: 0.3s;
 }
 
 .chat-container-GPT-messages-bot {
@@ -60,6 +61,7 @@
     padding: 0px 20px;
     border-radius: 25px;
     max-width: 70%;
+    transition: 0.3s;
 }
 
 .chat-container-GPT-messages-bot-bubble a {
@@ -70,21 +72,41 @@
 .chat-container-GPT-messages-user-bubble pre {
     box-sizing: border-box;
     padding: 20px;
+    border: #000000 3px solid;
     border-radius: 25px;
     background-color: #000000;
     overflow-x: auto;
     font-size: 15px;
     max-width: 100%;
     white-space: pre-wrap;
-}
-
-.chat-container-GPT-messages-bot-bubble pre {
     transition: 0.3s;
 }
 
 .chat-container-GPT-messages-bot-bubble pre:hover {
     transform: translate(-2px, -2px);
     box-shadow: 2px 2px 4px #111111;
+}
+
+.chat-container-GPT-messages-bot-bubble pre.active {
+    transition: 1s;
+    transform: scale(1.03);
+    border: #111111 3px solid;
+    background-color: #111111;
+}
+
+.chat-container-GPT-messages-bot-bubble pre.succeed {
+    border: #0b6b4b 3px solid;
+}
+
+.chat-container-GPT-messages-bot-bubble pre.fail {
+    border: #6b0b0b 3px solid;
+}
+
+
+.chat-container-GPT-messages-bot-bubble:hover,
+.chat-container-GPT-messages-user-bubble:hover {
+    transform: translate(-1px, -1px);
+    box-shadow: 2px 2px 4px #000000;
 }
 
 .chat-container-GPT-messages-bot-bubble pre::-webkit-scrollbar,
