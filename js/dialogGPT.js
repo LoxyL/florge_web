@@ -21,6 +21,15 @@ export class DialogGPT {
 		return inputValue.trim();
 	}
 
+	_processRawDisplay(text) {
+		return text
+			.replace(/&/g, "&amp;") 
+			.replace(/</g, "&lt;")  
+			.replace(/>/g, "&gt;")  
+			.replace(/"/g, "&quot;")
+			.replace(/'/g, "&#39;");
+	}
+
 	_processTextDisplay(text) {
 		const md = new markdownit({
 			highlight: function(code, lang) {
@@ -57,6 +66,8 @@ export class DialogGPT {
 		const bubbles = document.querySelectorAll('.chat-container-GPT-messages-bot-bubble');
 
 		bubbles.forEach(bubble => {
+			const rawContent = bubble.lastElementChild.innerHTML;
+
 			bubble.addEventListener('contextmenu', event => {
 				event.preventDefault();
 
@@ -73,36 +84,60 @@ export class DialogGPT {
 					this._switchMessage(bubble);
 				}
 			})
+
+			bubble.addEventListener('click', event => {
+				const currentTime = new Date().getTime();
+
+				if(currentTime - lastRightClickTime < 500){
+					navigator.clipboard.writeText(rawContent)
+					.then(() => {
+						bubble.classList.add('succeed');
+						setTimeout(() => {
+							bubble.classList.remove('succeed');
+						}, 500)
+					})
+					.catch(err => {
+						console.error("[INFO]Message copy error:", err);
+					})
+				}
+			})
 		})
 	}
 
 	_codeInteract() {
-		const codeBlocks = document.querySelectorAll('.chat-container-GPT-messages-bot-bubble pre:not(#raw-message)');
+		const codeBlocks = document.querySelectorAll('code');
 		
 		codeBlocks.forEach(block => {
 			let timer;
+			const container = block.parentNode;
 
-			const name = block.firstChild.className.replace('language-', '');
-			block.setAttribute('code-language', name);
+			const childNodes = container.childNodes;
+			if (container.nodeName === 'PRE' && childNodes.length === 1 && childNodes[0].nodeName === 'CODE') {
+				container.setAttribute("class", "code-block");
+			} else {
+				return;
+			}
 
-			block.addEventListener('contextmenu', function(event) {
+			const name = block.className.replace('language-', '');
+			container.setAttribute('code-language', name);
+
+			container.addEventListener('contextmenu', function(event) {
 				event.preventDefault();
 			});
 
-			block.addEventListener('mousedown', function(event) {
+			container.addEventListener('mousedown', function(event) {
 				if(event.button === 2){
-					block.classList.add('active');
-
+					container.classList.add('active');
 					
 					timer = setTimeout(() => {
-						navigator.clipboard.writeText(block.textContent)
+						navigator.clipboard.writeText(container.textContent)
 							.then(() => {
-								block.classList.remove('active');
-								block.classList.add('succeed');
+								container.classList.remove('active');
+								container.classList.add('succeed');
 							})
 							.catch(err => {
-								block.classList.remove('active');
-								block.classList.add('fail');
+								container.classList.remove('active');
+								container.classList.add('fail');
 								console.error("[INFO]Code copy error:", err);
 							})
 					}, 1000)
@@ -111,9 +146,9 @@ export class DialogGPT {
 
 			document.addEventListener('mouseup', function() {
 				clearTimeout(timer);
-				block.classList.remove('active');
-				block.classList.remove('succeed');
-				block.classList.remove('fail');
+				container.classList.remove('active');
+				container.classList.remove('succeed');
+				container.classList.remove('fail');
 			})
 		});
 
@@ -178,9 +213,9 @@ export class DialogGPT {
 			chatContainer.scrollTop = chatContainer.scrollHeight;
 		}
 
-		const rawContainer = document.createElement('div');
+		const rawContainer = document.createElement('pre');
 		rawContainer.setAttribute("id", "raw-message");
-		rawContainer.innerHTML = receive_content;
+		rawContainer.innerHTML = this._processRawDisplay(receive_content);
 		botBubble.appendChild(rawContainer);
 
 		this._codeInteract();
@@ -385,7 +420,7 @@ export class DialogGPT {
 
 				const rawContainer = document.createElement('pre');
 				rawContainer.setAttribute("id", "raw-message");
-				rawContainer.innerHTML = piece.content;
+				rawContainer.innerHTML = this._processRawDisplay(piece.content);
 				botBubble.appendChild(rawContainer);
 			}
 
