@@ -42,11 +42,42 @@ export class DialogGPT {
 		this.bot = new BotGPT();
 	}
 
-	_codeInteract() {
-		const menu = document.getElementById('code-interact');
+	_switchMessage(bubble) {
+		if(bubble.classList.contains('raw')){
+			bubble.classList.remove('raw');
+		} else {
+			bubble.classList.add('raw');
+		}
+	}
 
-		const codeBlocks = document.querySelectorAll('.chat-container-GPT-messages-bot-bubble pre');
-		let currentCodeBlock;
+	_bubbleInteract() {
+		let rightClickCount = 0;
+		let lastRightClickTime = 0;
+
+		const bubbles = document.querySelectorAll('.chat-container-GPT-messages-bot-bubble');
+
+		bubbles.forEach(bubble => {
+			bubble.addEventListener('contextmenu', event => {
+				event.preventDefault();
+
+				const currentTime = new Date().getTime();
+
+				if(currentTime - lastRightClickTime < 500){
+					rightClickCount++;
+				} else {
+					rightClickCount = 1;
+				}
+				lastRightClickTime = currentTime;
+
+				if(rightClickCount === 2){
+					this._switchMessage(bubble);
+				}
+			})
+		})
+	}
+
+	_codeInteract() {
+		const codeBlocks = document.querySelectorAll('.chat-container-GPT-messages-bot-bubble pre:not(#raw-message)');
 		
 		codeBlocks.forEach(block => {
 			let timer;
@@ -147,7 +178,13 @@ export class DialogGPT {
 			chatContainer.scrollTop = chatContainer.scrollHeight;
 		}
 
+		const rawContainer = document.createElement('div');
+		rawContainer.setAttribute("id", "raw-message");
+		rawContainer.innerHTML = receive_content;
+		botBubble.appendChild(rawContainer);
+
 		this._codeInteract();
+		this._bubbleInteract();
 		console.log("[INFO]Done receive content.");
 	}
 
@@ -345,6 +382,11 @@ export class DialogGPT {
 						{left: "$", right: "$", display: false}
 					]
 				});
+
+				const rawContainer = document.createElement('pre');
+				rawContainer.setAttribute("id", "raw-message");
+				rawContainer.innerHTML = piece.content;
+				botBubble.appendChild(rawContainer);
 			}
 
 			chatContainer.scrollTop = chatContainer.scrollHeight;
@@ -352,6 +394,7 @@ export class DialogGPT {
 		}
 
 		this._codeInteract();
+		this._bubbleInteract();
 	}
 
 	async _nameRecord() {

@@ -54,6 +54,12 @@
     font-size: 20px;
 }
 
+#raw-message {
+    display: none;
+    white-space: pre-wrap;
+    font-family: '微软雅黑';
+}
+
 .chat-container-GPT-messages-bot-bubble {
     margin-left: 20px;
     background-color: #222222;
@@ -64,11 +70,19 @@
     transition: 0.3s;
 }
 
+.chat-container-GPT-messages-bot-bubble.raw > :not(#raw-message) {
+    display: none;
+}
+
+.chat-container-GPT-messages-bot-bubble.raw > #raw-message {
+    display: block;
+}
+
 .chat-container-GPT-messages-bot-bubble a {
     color: #1bda9a;
 }
 
-.chat-container-GPT-messages-bot-bubble pre {
+.chat-container-GPT-messages-bot-bubble pre:not(#raw-message) {
     position: relative;
     box-sizing: border-box;
     padding: 30px 20px 20px 20px;
@@ -82,30 +96,30 @@
     transition: 0.3s;
 }
 
-.chat-container-GPT-messages-bot-bubble pre::after {
+.chat-container-GPT-messages-bot-bubble pre:not(#raw-message)::after {
     position: absolute;
     right: 20px;
     top: 5px;
     content: attr(code-language);
 }
 
-.chat-container-GPT-messages-bot-bubble pre:hover {
+.chat-container-GPT-messages-bot-bubble pre:not(#raw-message):hover {
     transform: translate(-2px, -2px);
     box-shadow: 2px 2px 4px #111111;
 }
 
-.chat-container-GPT-messages-bot-bubble pre.active {
+.chat-container-GPT-messages-bot-bubble pre:not(#raw-message).active {
     transition: 1s;
     transform: scale(1.03);
     border: #111111 3px solid;
     background-color: #111111;
 }
 
-.chat-container-GPT-messages-bot-bubble pre.succeed {
+.chat-container-GPT-messages-bot-bubble pre:not(#raw-message).succeed {
     border: #0b6b4b 3px solid;
 }
 
-.chat-container-GPT-messages-bot-bubble pre.fail {
+.chat-container-GPT-messages-bot-bubble pre:not(#raw-message).fail {
     border: #6b0b0b 3px solid;
 }
 
