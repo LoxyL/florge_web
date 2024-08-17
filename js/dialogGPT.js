@@ -4,6 +4,7 @@ export class DialogGPT {
 	constructor() {
 		this.dialog_num = 0;
 		this.bot = new BotGPT();
+		this.dialog_num++;
 		this.agent = new AgentGPT();
 		this.current_record_id = 0;
 		this._loadRecordList();
@@ -49,6 +50,7 @@ export class DialogGPT {
 		const container = document.getElementById('chat-container-GPT-messages');
 		container.innerHTML = '';
 		this.bot = new BotGPT();
+		this.dialog_num++;
 	}
 
 	_switchMessage(bubble) {
@@ -59,14 +61,35 @@ export class DialogGPT {
 		}
 	}
 
+	async _deleteMessage(id) {
+		console.log(`[INFO]Delete message ${id}`);
+
+		this.bot.deleteMessage(id);
+		await this._saveRecordContent();
+		this._loadRecordContent();
+	}
+
 	_bubbleInteract() {
 		let rightClickCount = 0;
 		let lastRightClickTime = 0;
 
-		const bubbles = document.querySelectorAll('.chat-container-GPT-messages-bot-bubble');
+		const botBubbles = document.querySelectorAll('.chat-container-GPT-messages-bot-bubble');
+		const userBubbles = document.querySelectorAll('.chat-container-GPT-messages-user-bubble');
 
-		bubbles.forEach(bubble => {
+		let ctrlPressed = false;
+
+		window.addEventListener('keydown', event => {
+			if(event.ctrlKey) ctrlPressed = true;
+		})
+
+		window.addEventListener('keyup', event => {
+			if(event.key === 'Control') ctrlPressed = false;
+		})
+
+		botBubbles.forEach(bubble => {
 			const rawContent = bubble.lastElementChild.innerHTML;
+
+			let timer;
 
 			bubble.addEventListener('contextmenu', event => {
 				event.preventDefault();
@@ -100,6 +123,56 @@ export class DialogGPT {
 						console.error("[INFO]Message copy error:", err);
 					})
 				}
+			})
+
+			bubble.addEventListener('mousedown', (event) => {
+				if(event.button === 0 && ctrlPressed){
+					bubble.classList.add('delete');
+
+					const setId = bubble.parentNode.id.split('-');
+					const messageId = Number(setId[setId.length-1]);
+					
+					timer = setTimeout(() => {
+						this._deleteMessage(messageId);
+					}, 1000);
+				}
+			});
+
+			bubble.addEventListener('mouseup', function() {
+				clearTimeout(timer);
+				bubble.classList.remove('delete');
+			})
+
+			bubble.addEventListener('mouseleave', function() {
+				clearTimeout(timer);
+				bubble.classList.remove('delete');
+			})
+		})
+
+		userBubbles.forEach(bubble => {
+			let timer;
+
+			bubble.addEventListener('mousedown', (event) => {
+				if(event.button === 0 && ctrlPressed){
+					bubble.classList.add('delete');
+
+					const setId = bubble.parentNode.id.split('-');
+					const messageId = Number(setId[setId.length-1]);
+					
+					timer = setTimeout(() => {
+						this._deleteMessage(messageId);
+					}, 1000);
+				}
+			});
+
+			bubble.addEventListener('mouseup', function() {
+				clearTimeout(timer);
+				bubble.classList.remove('delete');
+			})
+
+			bubble.addEventListener('mouseleave', function() {
+				clearTimeout(timer);
+				bubble.classList.remove('delete');
 			})
 		})
 	}
@@ -144,7 +217,14 @@ export class DialogGPT {
 				}
 			});
 
-			document.addEventListener('mouseup', function() {
+			container.addEventListener('mouseup', function() {
+				clearTimeout(timer);
+				container.classList.remove('active');
+				container.classList.remove('succeed');
+				container.classList.remove('fail');
+			})
+
+			container.addEventListener('mouseleave', function() {
 				clearTimeout(timer);
 				container.classList.remove('active');
 				container.classList.remove('succeed');
@@ -165,7 +245,7 @@ export class DialogGPT {
 
 		const userBubble = document.createElement("div");
 		userBubble.setAttribute("class", "chat-container-GPT-messages-user-bubble");
-		userBubble.innerHTML = this._processTextDisplay(inputValue);
+		userBubble.innerHTML = `<pre>${this._processRawDisplay(inputValue)}</pre>`;
 
 		userSet.appendChild(userIcon);
 		userSet.appendChild(userBubble);
@@ -209,7 +289,7 @@ export class DialogGPT {
 					{left: "$", right: "$", display: false}
 				]
 			});
-
+			this._codeInteract();
 			chatContainer.scrollTop = chatContainer.scrollHeight;
 		}
 
@@ -217,8 +297,7 @@ export class DialogGPT {
 		rawContainer.setAttribute("id", "raw-message");
 		rawContainer.innerHTML = this._processRawDisplay(receive_content);
 		botBubble.appendChild(rawContainer);
-
-		this._codeInteract();
+		
 		this._bubbleInteract();
 		console.log("[INFO]Done receive content.");
 	}
@@ -252,6 +331,34 @@ export class DialogGPT {
 			this._switchToSendButton();
 			window.isInteracting = false;
 		} 
+	}
+
+	async _regenerateResponse(id) {
+		const contentIter = this.bot.regenerateMessage(id);
+
+		const botBubble = document.getElementById('chat-container-GPT-messages-bot-'+id).querySelector('.chat-container-GPT-messages-bot-bubble');
+		botBubble.innerHTML = '...';
+
+		for await (const piece of contentIter) {
+			if (piece == undefined) continue;
+			receive_content += piece;
+			botBubble.innerHTML = this._processTextDisplay(receive_content);
+			renderMathInElement(botSet, {
+				delimiters: [
+					{left: "$$", right: "$$", display: true},
+					{left: "$", right: "$", display: false}
+				]
+			});
+			this._codeInteract();
+		}
+
+		const rawContainer = document.createElement('pre');
+		rawContainer.setAttribute("id", "raw-message");
+		rawContainer.innerHTML = this._processRawDisplay(receive_content);
+		botBubble.appendChild(rawContainer);
+		
+		this._bubbleInteract();
+		console.log("[INFO]Done receive content.");
 	}
 
 	async _getRecordData() {
@@ -387,7 +494,7 @@ export class DialogGPT {
 		
 				const userBubble = document.createElement("div");
 				userBubble.setAttribute("class", "chat-container-GPT-messages-user-bubble");
-				userBubble.innerHTML = this._processTextDisplay(piece.content);
+				userBubble.innerHTML = `<pre>${this._processRawDisplay(piece.content)}</pre>`;
 		
 				userSet.appendChild(userIcon);
 				userSet.appendChild(userBubble);

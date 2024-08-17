@@ -24,11 +24,22 @@
 .chat-container-GPT-messages-user-bubble {
     margin-right: 20px;
     background-color: #2d3d37;
+    border: #2d3d37 3px solid;
     box-sizing: border-box;
     padding: 0px 20px;
     border-radius: 25px;
     max-width: 70%;
     transition: 0.3s;
+}
+
+.chat-container-GPT-messages-user-bubble pre {
+    white-space: pre-wrap;
+    font-family: '微软雅黑';
+}
+
+.chat-container-GPT-messages-user-bubble.delete {
+    transition: 1s;
+    border: #6b0b0b 3px solid;
 }
 
 .chat-container-GPT-messages-bot {
@@ -77,6 +88,11 @@
 
 .chat-container-GPT-messages-bot-bubble.succeed {
     border: #0b6b4b 3px solid;
+}
+
+.chat-container-GPT-messages-bot-bubble.delete {
+    transition: 1s;
+    border: #6b0b0b 3px solid;
 }
 
 .chat-container-GPT-messages-bot-bubble.raw > :not(#raw-message) {

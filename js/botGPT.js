@@ -50,6 +50,23 @@ export class BotGPT {
         console.log("[INFO]Current params:\n[INFO]\tmodel: ", this.model, "\n[INFO]\tmax_tokens: ", this.maxTokens);
     }
 
+    deleteMessage(id) {
+        this.body.messages.splice(id, 1);
+    }
+
+    async *regenerateMessage(id) {
+        const contextBefore = this.body.messages.slice(0, id);
+        const contextAfter = this.body.messages.slice(id+1);
+
+        this.body.messages = contextBefore;
+
+        for await (const piece of this.interact(null)){
+            yield piece;
+        }
+
+        this.body.messages.push(...contextAfter);
+    }
+
     streamAbort() {
         if(this.streamControl){
             this.streamControl.abort();
@@ -63,11 +80,13 @@ export class BotGPT {
 
         console.log("[INFO]Starting interaction.");
         this._refresh();
-        const messageSend = {
-            role: 'user',
-            content: contentSend
+        if(contentSend){
+            const messageSend = {
+                role: 'user',
+                content: contentSend
+            }
+            this.body.messages.push(messageSend);
         }
-        this.body.messages.push(messageSend);
         console.log("[INFO]Current context: ", this.body);
 
         let response_content = "";
