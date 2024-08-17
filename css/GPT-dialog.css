@@ -182,9 +182,9 @@
 .chat-container-GPT-messages-bot-bubble .code-block::-webkit-scrollbar-thumb:hover {
     background: #535353;
 }
-
+/* 
 .code-interact-menu {
-    /* display: none; */
+    display: none;
     flex-direction: column;
     align-items: center;
     opacity: 0;
@@ -203,7 +203,7 @@
 
 .code-interact-menu ul {
     list-style: none;
-    /* background-color: black; */
+    background-color: black;
     display: flex;
     flex-direction: column; 
     align-items: center;
@@ -224,4 +224,4 @@
 
 .code-interact-menu ul li:hover {
     background-color: #118a61;
-}
+} */

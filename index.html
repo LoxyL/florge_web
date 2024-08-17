@@ -71,8 +71,8 @@
 			</div>
 			<div class="chat-container-GPT-input">
 				<textarea name="message-send-GPT" id="message-send-GPT" rows="1" cols="30"></textarea>
-				<button onclick="send()" id="send-button">&#9650</button>
-				<button onclick="streamStop()" id="stop-button">&#9632</button>
+				<button onclick="send()" id="send-button">&#9650;</button>
+				<button onclick="streamStop()" id="stop-button">&#9632;</button>
 			</div>
 		</div>
 	
@@ -101,7 +101,6 @@
 					<div class="config-tab-content-part">
 						<label for="config-source-GPT">GPT Source</label>
 						<input name="config-source-GPT" type="text" id="config-source-GPT">
-						<br>
 						<label for="config-apikey-GPT">API key</label>
 						<input name="config-apikey-GPT" type="password" id="config-apikey-GPT">
 					</div>
@@ -114,19 +113,19 @@
 				</div>
 			</div>
 			<div class="config-buttons">
-				<button class="config-button" onclick="configSave()">Save</button>		
-				<button class="config-button" onclick="configLoad()">Load</button>			
+				<button class="config-button" id="s" onclick="configSave()">&#9660;</button>		
+				<button class="config-button" id="l" onclick="configLoad()">&#9650;</button>			
 			</div>
 
 		</div>
 	</div>
-
+<!-- 
 	<div class="code-interact-menu" id="code-interact">
 		<div>language</div>
 		<ul>
 			<li id="code-copy">Copy code</li>
 		</ul>
-	</div>
+	</div> -->
 	
 	<script src="js/GPT-input_event.js"></script>
 	<script type="module" src="js/GPT-main.js"></script>
