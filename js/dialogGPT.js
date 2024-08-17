@@ -204,7 +204,8 @@ export class DialogGPT {
 				return;
 			}
 
-			const name = block.className.replace('language-', '');
+			let name = block.className.replace('language-', '');
+			if(!name) name = 'code';
 			container.setAttribute('code-language', name);
 
 			container.addEventListener('contextmenu', function(event) {
@@ -552,6 +553,7 @@ export class DialogGPT {
 				rawContainer.innerHTML = this._processRawDisplay(piece.content);
 				botBubble.appendChild(rawContainer);
 			}
+			this._codeInteract();
 
 			chatContainer.scrollTop = chatContainer.scrollHeight;
 			this.dialog_num += 1;
