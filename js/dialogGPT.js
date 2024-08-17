@@ -89,7 +89,8 @@ export class DialogGPT {
 		botBubbles.forEach(bubble => {
 			const rawContent = bubble.lastElementChild.innerHTML;
 
-			let timer;
+			let deleteTimer;
+			let regenerateTimer;
 
 			bubble.addEventListener('contextmenu', event => {
 				event.preventDefault();
@@ -132,19 +133,31 @@ export class DialogGPT {
 					const setId = bubble.parentNode.id.split('-');
 					const messageId = Number(setId[setId.length-1]);
 					
-					timer = setTimeout(() => {
+					deleteTimer = setTimeout(() => {
 						this._deleteMessage(messageId);
+					}, 1000);
+				} else if(event.button === 2 && ctrlPressed){
+					bubble.classList.add('regenerate');
+
+					const setId = bubble.parentNode.id.split('-');
+					const messageId = Number(setId[setId.length-1]);
+					
+					regenerateTimer = setTimeout(() => {
+						this._regenerateResponse(messageId);
+						bubble.classList.remove('regenerate');
 					}, 1000);
 				}
 			});
 
 			bubble.addEventListener('mouseup', function() {
-				clearTimeout(timer);
+				clearTimeout(deleteTimer);
+				clearTimeout(regenerateTimer);
 				bubble.classList.remove('delete');
 			})
 
 			bubble.addEventListener('mouseleave', function() {
-				clearTimeout(timer);
+				clearTimeout(deleteTimer);
+				clearTimeout(regenerateTimer);
 				bubble.classList.remove('delete');
 			})
 		})
@@ -334,16 +347,20 @@ export class DialogGPT {
 	}
 
 	async _regenerateResponse(id) {
+		window.isInteracting = true;
+		this._switchToStopButton();
+
 		const contentIter = this.bot.regenerateMessage(id);
 
 		const botBubble = document.getElementById('chat-container-GPT-messages-bot-'+id).querySelector('.chat-container-GPT-messages-bot-bubble');
-		botBubble.innerHTML = '...';
+		botBubble.innerHTML = this._processTextDisplay("...");
 
+		let receive_content = '';
 		for await (const piece of contentIter) {
 			if (piece == undefined) continue;
 			receive_content += piece;
 			botBubble.innerHTML = this._processTextDisplay(receive_content);
-			renderMathInElement(botSet, {
+			renderMathInElement(botBubble, {
 				delimiters: [
 					{left: "$$", right: "$$", display: true},
 					{left: "$", right: "$", display: false}
@@ -359,6 +376,11 @@ export class DialogGPT {
 		
 		this._bubbleInteract();
 		console.log("[INFO]Done receive content.");
+
+		this._saveRecordContent();
+		
+		this._switchToSendButton();
+		window.isInteracting = false;
 	}
 
 	async _getRecordData() {

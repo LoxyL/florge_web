@@ -37,6 +37,10 @@
     font-family: '微软雅黑';
 }
 
+.chat-container-GPT-messages-user-bubble:hover {
+    border: #42534d 3px solid;
+}
+
 .chat-container-GPT-messages-user-bubble.delete {
     transition: 1s;
     border: #6b0b0b 3px solid;
@@ -93,6 +97,11 @@
 .chat-container-GPT-messages-bot-bubble.delete {
     transition: 1s;
     border: #6b0b0b 3px solid;
+}
+
+.chat-container-GPT-messages-bot-bubble.regenerate {
+    transition: 1s;
+    border: #0f5886 3px solid;
 }
 
 .chat-container-GPT-messages-bot-bubble.raw > :not(#raw-message) {
