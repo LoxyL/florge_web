@@ -429,7 +429,7 @@ body {
   width: 50px;
   height: 50px;
   background-color: #0b6b4b;
-  border-radius: 20px;
+  border-radius: 25px;
   overflow: hidden;
   transition: all 0.3s ease;
 }
@@ -442,6 +442,7 @@ body {
   opacity: 1;
   width: 30px;
   height: 30px;
+  transform-origin: center;
   transition: all 0.3s ease;
 }
 
@@ -452,8 +453,9 @@ body {
 }
 
 .config-container:hover svg {
-  visibility: hidden;
-  opacity: 0;
+  /* visibility: hidden;
+  opacity: 0; */
+  transform: rotate(260deg);
 }
 
 .config-container-content {
