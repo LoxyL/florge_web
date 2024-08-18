@@ -142,6 +142,7 @@ export class DialogGPT {
 					const setId = bubble.parentNode.id.split('-');
 					const messageId = Number(setId[setId.length-1]);
 					
+					clearTimeout(regenerateTimer);
 					regenerateTimer = setTimeout(() => {
 						this._regenerateResponse(messageId);
 						bubble.classList.remove('regenerate');
@@ -348,6 +349,7 @@ export class DialogGPT {
 	}
 
 	async _regenerateResponse(id) {
+		if(window.isInteracting) return;
 		window.isInteracting = true;
 		this._switchToStopButton();
 
