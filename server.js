@@ -3,11 +3,15 @@ const path = require('path');
 const fs = require('fs');
 const bodyParser = require('body-parser');
 
+function computeStringSizeMB(str) {
+    return new Blob([str]).size;
+}
+
 const app = express();
 const PORT = 30962;
 
 app.use(express.static(__dirname));
-app.use(bodyParser.json());
+app.use(bodyParser.json({limit:'1mb'}));
 app.use(bodyParser.urlencoded({extended: true}));
 
 const server = app.listen(PORT, () => {
@@ -26,7 +30,8 @@ app.post('/config', (req, res) => {
         if (err) {
             return res.status(500).send('Error saving Configurations');
         }
-        res.send('Done saving Configurations');
+        res.send(`Done saving Configurations.`);
+        console.log(`Save configurations[${computeStringSizeMB(JSON.stringify(config))/1024/1024}MB]`);
     });
 })
 
@@ -43,6 +48,7 @@ app.get('/config', (req, res) => {
             return res.status(500).send('Error reading Configurations');
         }
         res.json(JSON.parse(config));
+        console.log(`Load configurations[${computeStringSizeMB(JSON.stringify(config))/1024/1024}MB]`);
     });
 })
 
@@ -55,6 +61,7 @@ app.post('/gpt/record', (req, res) => {
             return res.status(500).send('Error saving Records');
         }
         res.send('Done saving Records');
+        console.log(`Save records[${computeStringSizeMB(JSON.stringify(data))/1024/1024}MB]`);
         // console.log('Saving records.');
     });
 })
@@ -72,5 +79,6 @@ app.get('/gpt/record', (req, res) => {
             return res.status(500).send('Error reading Records');
         }
         res.json(JSON.parse(data));
+        console.log(`Load records[${computeStringSizeMB(JSON.stringify(data))/1024/1024}MB]`);
     });
 })

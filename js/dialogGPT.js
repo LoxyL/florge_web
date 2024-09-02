@@ -9,6 +9,18 @@ export class DialogGPT {
 		this.current_record_id = 0;
 		this._loadRecordList();
 		this.useAgent = true;
+		this.ctrlPressed = false;
+		this._windowInteract();
+	}
+
+	_windowInteract() {
+		window.addEventListener('keydown', event => {
+			if(event.ctrlKey) this.ctrlPressed = true;
+		})
+
+		window.addEventListener('keyup', event => {
+			if(event.key === 'Control') this.ctrlPressed = false;
+		})
 	}
 
 	_getInputGPT() {
@@ -62,191 +74,206 @@ export class DialogGPT {
 	}
 
 	async _deleteMessage(id) {
-		console.log(`[INFO]Delete message ${id}`);
+		console.log(`[INFO][BUBBLE]Delete bubble ${id}`);
 
 		this.bot.deleteMessage(id);
 		await this._saveRecordContent();
 		this._loadRecordContent();
 	}
 
-	_bubbleInteract() {
+	_botBubbleInteract(bubble) {
 		let rightClickCount = 0;
 		let lastRightClickTime = 0;
 
-		const botBubbles = document.querySelectorAll('.chat-container-GPT-messages-bot-bubble');
-		const userBubbles = document.querySelectorAll('.chat-container-GPT-messages-user-bubble');
+		const rawContent = bubble.lastElementChild.innerHTML;
 
-		let ctrlPressed = false;
-
-		window.addEventListener('keydown', event => {
-			if(event.ctrlKey) ctrlPressed = true;
-		})
-
+		let deleteTimer;
+		let regenerateTimer;
+		
 		window.addEventListener('keyup', event => {
-			if(event.key === 'Control') ctrlPressed = false;
-		})
-
-		botBubbles.forEach(bubble => {
-			const rawContent = bubble.lastElementChild.innerHTML;
-
-			let deleteTimer;
-			let regenerateTimer;
-
-			bubble.addEventListener('contextmenu', event => {
-				event.preventDefault();
-
-				const currentTime = new Date().getTime();
-
-				if(currentTime - lastRightClickTime < 500){
-					rightClickCount++;
-				} else {
-					rightClickCount = 1;
-				}
-				lastRightClickTime = currentTime;
-
-				if(rightClickCount === 2){
-					this._switchMessage(bubble);
-				}
-			})
-
-			bubble.addEventListener('click', event => {
-				const currentTime = new Date().getTime();
-
-				if(currentTime - lastRightClickTime < 500){
-					navigator.clipboard.writeText(rawContent)
-					.then(() => {
-						bubble.classList.add('succeed');
-						setTimeout(() => {
-							bubble.classList.remove('succeed');
-						}, 500)
-					})
-					.catch(err => {
-						console.error("[INFO]Message copy error:", err);
-					})
-				}
-			})
-
-			bubble.addEventListener('mousedown', (event) => {
-				if(event.button === 0 && ctrlPressed){
-					bubble.classList.add('delete');
-
-					const setId = bubble.parentNode.id.split('-');
-					const messageId = Number(setId[setId.length-1]);
-					
-					deleteTimer = setTimeout(() => {
-						this._deleteMessage(messageId);
-					}, 1000);
-				} else if(event.button === 2 && ctrlPressed){
-					bubble.classList.add('regenerate');
-
-					const setId = bubble.parentNode.id.split('-');
-					const messageId = Number(setId[setId.length-1]);
-					
-					clearTimeout(regenerateTimer);
-					regenerateTimer = setTimeout(() => {
-						this._regenerateResponse(messageId);
-						bubble.classList.remove('regenerate');
-					}, 1000);
-				}
-			});
-
-			bubble.addEventListener('mouseup', function() {
+			if(event.key === 'Control') {
 				clearTimeout(deleteTimer);
 				clearTimeout(regenerateTimer);
+				bubble.classList.remove('regenerate');
 				bubble.classList.remove('delete');
-			})
-
-			bubble.addEventListener('mouseleave', function() {
-				clearTimeout(deleteTimer);
-				clearTimeout(regenerateTimer);
-				bubble.classList.remove('delete');
-			})
+			}
 		})
 
-		userBubbles.forEach(bubble => {
-			let timer;
+		bubble.addEventListener('contextmenu', event => {
+			event.preventDefault();
 
-			bubble.addEventListener('mousedown', (event) => {
-				if(event.button === 0 && ctrlPressed){
-					bubble.classList.add('delete');
+			const currentTime = new Date().getTime();
 
-					const setId = bubble.parentNode.id.split('-');
-					const messageId = Number(setId[setId.length-1]);
-					
-					timer = setTimeout(() => {
-						this._deleteMessage(messageId);
-					}, 1000);
-				}
-			});
+			console.log("[INFO][BUBBLE]Right click at time ", currentTime, " from last time ", lastRightClickTime, " after ", currentTime - lastRightClickTime);
 
-			bubble.addEventListener('mouseup', function() {
-				clearTimeout(timer);
-				bubble.classList.remove('delete');
-			})
+			if(currentTime - lastRightClickTime < 500){
+				rightClickCount++;
+			} else {
+				rightClickCount = 1;
+			}
+			lastRightClickTime = currentTime;
 
-			bubble.addEventListener('mouseleave', function() {
-				clearTimeout(timer);
-				bubble.classList.remove('delete');
-			})
+			if(rightClickCount === 2){
+				this._switchMessage(bubble);
+			}
+		})
+
+		bubble.addEventListener('click', event => {
+			const currentTime = new Date().getTime();
+
+			if(currentTime - lastRightClickTime < 500){
+				navigator.clipboard.writeText(rawContent)
+				.then(() => {
+					bubble.classList.add('succeed');
+					setTimeout(() => {
+						bubble.classList.remove('succeed');
+					}, 500)
+				})
+				.catch(err => {
+					console.error("[INFO][BUBBLE]Message copy error:", err);
+				})
+				console.log("[INFO][BUBBLE]Copied.")
+			}
+		})
+
+		bubble.addEventListener('mousedown', (event) => {
+			if(event.button === 0 && this.ctrlPressed){
+				bubble.classList.add('delete');
+
+				const setId = bubble.parentNode.id.split('-');
+				const messageId = Number(setId[setId.length-1]);
+				
+				deleteTimer = setTimeout(() => {
+					this._deleteMessage(messageId);
+				}, 1000);
+			} else if(event.button === 2 && this.ctrlPressed){
+				bubble.classList.add('regenerate');
+
+				const setId = bubble.parentNode.id.split('-');
+				const messageId = Number(setId[setId.length-1]);
+				
+				clearTimeout(regenerateTimer);
+				regenerateTimer = setTimeout(() => {
+					this._regenerateResponse(messageId);
+					bubble.classList.remove('regenerate');
+				}, 1000);
+			}
+		});
+
+		bubble.addEventListener('mouseup', function() {
+			clearTimeout(deleteTimer);
+			clearTimeout(regenerateTimer);
+			bubble.classList.remove('delete');
+			bubble.classList.remove('regenerate');
+		})
+
+		bubble.addEventListener('mouseleave', function() {
+			clearTimeout(deleteTimer);
+			clearTimeout(regenerateTimer);
+			bubble.classList.remove('delete');
+			bubble.classList.remove('regenerate');
 		})
 	}
 
-	_codeInteract() {
+	_userBubbleInteract(bubble) {
+		let timer;
+
+		bubble.addEventListener('mousedown', (event) => {
+			if(event.button === 0 && this.ctrlPressed){
+				bubble.classList.add('delete');
+
+				const setId = bubble.parentNode.id.split('-');
+				const messageId = Number(setId[setId.length-1]);
+				
+				timer = setTimeout(() => {
+					this._deleteMessage(messageId);
+				}, 1000);
+			}
+		});
+
+		bubble.addEventListener('mouseup', function() {
+			clearTimeout(timer);
+			bubble.classList.remove('delete');
+		})
+
+		bubble.addEventListener('mouseleave', function() {
+			clearTimeout(timer);
+			bubble.classList.remove('delete');
+		})
+	}
+
+	_bubbleInteractAll() {
+		const botBubbles = document.querySelectorAll('.chat-container-GPT-messages-bot-bubble');
+		const userBubbles = document.querySelectorAll('.chat-container-GPT-messages-user-bubble');
+
+		botBubbles.forEach(bubble => {
+			this._botBubbleInteract(bubble);
+		})
+
+		userBubbles.forEach(bubble => {
+			this._userBubbleInteract(bubble);
+		})
+	}
+
+	_codeInteract(block) {
+		let timer;
+		const container = block.parentNode;
+
+		const childNodes = container.childNodes;
+		if (container.nodeName === 'PRE' && childNodes.length === 1 && childNodes[0].nodeName === 'CODE') {
+			container.setAttribute("class", "code-block");
+		} else {
+			return;
+		}
+
+		let name = block.className.replace('language-', '');
+		if(!name) name = 'code';
+		container.setAttribute('code-language', name);
+
+		container.addEventListener('contextmenu', function(event) {
+			event.preventDefault();
+		});
+
+		container.addEventListener('mousedown', function(event) {
+			if(event.button === 2){
+				container.classList.add('active');
+				
+				timer = setTimeout(() => {
+					navigator.clipboard.writeText(container.textContent)
+						.then(() => {
+							container.classList.remove('active');
+							container.classList.add('succeed');
+						})
+						.catch(err => {
+							container.classList.remove('active');
+							container.classList.add('fail');
+							console.error("[INFO]Code copy error:", err);
+						})
+				}, 1000)
+			}
+		});
+
+		container.addEventListener('mouseup', function() {
+			clearTimeout(timer);
+			container.classList.remove('active');
+			container.classList.remove('succeed');
+			container.classList.remove('fail');
+		})
+
+		container.addEventListener('mouseleave', function() {
+			clearTimeout(timer);
+			container.classList.remove('active');
+			container.classList.remove('succeed');
+			container.classList.remove('fail');
+		})
+	}
+
+	_codeInteractAll() {
 		const codeBlocks = document.querySelectorAll('code');
 		
 		codeBlocks.forEach(block => {
-			let timer;
-			const container = block.parentNode;
-
-			const childNodes = container.childNodes;
-			if (container.nodeName === 'PRE' && childNodes.length === 1 && childNodes[0].nodeName === 'CODE') {
-				container.setAttribute("class", "code-block");
-			} else {
-				return;
-			}
-
-			let name = block.className.replace('language-', '');
-			if(!name) name = 'code';
-			container.setAttribute('code-language', name);
-
-			container.addEventListener('contextmenu', function(event) {
-				event.preventDefault();
-			});
-
-			container.addEventListener('mousedown', function(event) {
-				if(event.button === 2){
-					container.classList.add('active');
-					
-					timer = setTimeout(() => {
-						navigator.clipboard.writeText(container.textContent)
-							.then(() => {
-								container.classList.remove('active');
-								container.classList.add('succeed');
-							})
-							.catch(err => {
-								container.classList.remove('active');
-								container.classList.add('fail');
-								console.error("[INFO]Code copy error:", err);
-							})
-					}, 1000)
-				}
-			});
-
-			container.addEventListener('mouseup', function() {
-				clearTimeout(timer);
-				container.classList.remove('active');
-				container.classList.remove('succeed');
-				container.classList.remove('fail');
-			})
-
-			container.addEventListener('mouseleave', function() {
-				clearTimeout(timer);
-				container.classList.remove('active');
-				container.classList.remove('succeed');
-				container.classList.remove('fail');
-			})
+			this._codeInteract(block);
 		});
-
 	}
 
 	_send_message(inputValue) {
@@ -268,6 +295,7 @@ export class DialogGPT {
 		const chatContainer = document.getElementById("chat-container-GPT-messages");
 		chatContainer.appendChild(userSet);
 
+		this._userBubbleInteract(userBubble);
 		chatContainer.scrollTop = chatContainer.scrollHeight;
 	}
 
@@ -304,7 +332,10 @@ export class DialogGPT {
 					{left: "$", right: "$", display: false}
 				]
 			});
-			this._codeInteract();
+			const codeBlocks = botBubble.querySelectorAll('code');
+			codeBlocks.forEach(block => {
+				this._codeInteract(block);
+			})
 			chatContainer.scrollTop = chatContainer.scrollHeight;
 		}
 
@@ -313,7 +344,7 @@ export class DialogGPT {
 		rawContainer.innerHTML = this._processRawDisplay(receive_content);
 		botBubble.appendChild(rawContainer);
 		
-		this._bubbleInteract();
+		this._botBubbleInteract(botBubble);
 		console.log("[INFO]Done receive content.");
 	}
 
@@ -350,6 +381,8 @@ export class DialogGPT {
 
 	async _regenerateResponse(id) {
 		if(window.isInteracting) return;
+		console.log("[INFO][BUBBLE]Starting regeneration on bubble ", id);
+
 		window.isInteracting = true;
 		this._switchToStopButton();
 
@@ -369,7 +402,10 @@ export class DialogGPT {
 					{left: "$", right: "$", display: false}
 				]
 			});
-			this._codeInteract();
+			const codeBlocks = botBubble.querySelectorAll('code');
+			codeBlocks.forEach(block => {
+				this._codeInteract(block);
+			})
 		}
 
 		const rawContainer = document.createElement('pre');
@@ -377,7 +413,6 @@ export class DialogGPT {
 		rawContainer.innerHTML = this._processRawDisplay(receive_content);
 		botBubble.appendChild(rawContainer);
 		
-		this._bubbleInteract();
 		console.log("[INFO]Done receive content.");
 
 		this._saveRecordContent();
@@ -555,14 +590,14 @@ export class DialogGPT {
 				rawContainer.innerHTML = this._processRawDisplay(piece.content);
 				botBubble.appendChild(rawContainer);
 			}
-			this._codeInteract();
+			this._codeInteractAll();
 
 			chatContainer.scrollTop = chatContainer.scrollHeight;
 			this.dialog_num += 1;
 		}
 
-		this._codeInteract();
-		this._bubbleInteract();
+		this._codeInteractAll();
+		this._bubbleInteractAll();
 	}
 
 	async _nameRecord() {
