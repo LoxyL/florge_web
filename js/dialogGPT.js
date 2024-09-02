@@ -421,9 +421,45 @@ export class DialogGPT {
 		window.isInteracting = false;
 	}
 
+	async _removeRecordData(id) {
+		try {
+			const response = await fetch(`http://localhost:30962/gpt/record_remove/${id}`);
+			const data = await response.json();
+			return data;
+		} catch (error) {
+			console.log('[INFO]Error reading record:', error);
+			return undefined;
+		}
+	}
+
+	async _getRecordList() {
+		try {
+			const response = await fetch(`http://localhost:30962/gpt/record`);
+			const data = await response.json();
+			return data;
+		} catch (error) {
+			console.log('[INFO]Error reading record:', error);
+			return undefined;
+		}
+	}
+
+	async _saveRecordList(data) {
+		try {
+			fetch(`http://localhost:30962/gpt/record`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify(data)
+			});
+		} catch (error) {
+			console.error('Error:', error);
+		}
+	}
+
 	async _getRecordData() {
 		try {
-			const response = await fetch('http://localhost:30962/gpt/record');
+			const response = await fetch(`http://localhost:30962/gpt/record/${this.current_record_id}`);
 			const data = await response.json();
 			return data;
 		} catch (error) {
@@ -434,7 +470,7 @@ export class DialogGPT {
 
 	async _saveRecordData(data) {
 		try {
-			fetch('http://localhost:30962/gpt/record', {
+			fetch(`http://localhost:30962/gpt/record/${this.current_record_id}`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json'
@@ -447,14 +483,14 @@ export class DialogGPT {
 	}
 
 	async _loadRecordList() {
-		const recordList = await this._getRecordData();
+		const recordList = await this._getRecordList();
 		if(!recordList || recordList.recordIds.length == 0){
 			const newRecordList = {
 				recordIds: [0],
-				recordTitles: ['New Chat'],
-				recordContents: [[]]
+				recordTitles: ['New Chat']
 			};
-			await this._saveRecordData(newRecordList);
+			await this._saveRecordList(newRecordList);
+			await this._saveRecordData([]);
 			this._loadRecordList();
 			return;
 		}
@@ -484,34 +520,30 @@ export class DialogGPT {
 	async _saveRecordContent() {
 		let context = JSON.parse(JSON.stringify(this.bot.body.messages));
 		context.shift();
-		const recordList = await this._getRecordData();;
-		let index = recordList.recordIds.indexOf(this.current_record_id);
-		recordList.recordContents[index] = context;
-		await this._saveRecordData(recordList);
+		await this._saveRecordData(context);
 	}
 	
 	async newChat() {
 		this._clear();
-		const recordList = await this._getRecordData();
+		const recordList = await this._getRecordList();
 		console.log('Done');
 		this.current_record_id = recordList.recordIds[0] + 1;
 		recordList.recordIds.unshift(this.current_record_id);
 		recordList.recordTitles.unshift('New Chat');
-		recordList.recordContents.unshift([]);
-		await this._saveRecordData(recordList);
-		await this._saveRecordContent();
+		await this._saveRecordData([]);
+		await this._saveRecordList(recordList);
 		await this._loadRecordList();
 		this._loadRecordContent();
 	}
 
 	async deleteRecord(id) {
-		const recordList = await this._getRecordData();
+		const recordList = await this._getRecordList();
 		let index = recordList.recordIds.indexOf(id);
 		recordList.recordIds.splice(index, 1);
 		recordList.recordTitles.splice(index, 1);
-		recordList.recordContents.splice(index, 1);
-		await this._saveRecordData(recordList);
-		this._loadRecordList();
+		await this._saveRecordList(recordList);
+		await this._loadRecordList();
+		this._removeRecordData(id);
 	}
 
 	async switchRecord(id){
@@ -533,12 +565,8 @@ export class DialogGPT {
 	
 	async _loadRecordContent() {
 		this._clear();
-		const recordList = await this._getRecordData();
-		let index = recordList.recordIds.indexOf(this.current_record_id);
-		let recordContents = recordList.recordContents[index];
-		for(let i=0; i<recordContents.length; i++){
-			this.bot.body.messages.push(recordContents[i]);
-		}
+		let recordContents = await this._getRecordData();
+		this.bot.body.messages.push(...recordContents);
 		
 		for(let i in recordContents){
 			const piece = recordContents[i];
@@ -604,9 +632,10 @@ export class DialogGPT {
 		if(this.useAgent){
 			const systemPrompt = "Provide an appropriate title based on the user\'s JSON-formatted conversation records. The title should not exceed 20 words and should be returned directly. Return the content in the primary language of the conversation.";
 
-			const recordList = await this._getRecordData();
+			const recordList = await this._getRecordList();
 			const index = recordList.recordIds.indexOf(this.current_record_id);
-			const recordContents = recordList.recordContents[index];
+			const recordContents = await this._getRecordData();
+			console.log(recordContents);
 
 			const record = document.getElementById(`record-GPT-${this.current_record_id}`);
 			const recordTitle = record.children[0];
@@ -623,7 +652,7 @@ export class DialogGPT {
 			}
 
 			recordList.recordTitles[index] = title;
-			await this._saveRecordData(recordList);
+			await this._saveRecordList(recordList);
 		}
 	}
 }
