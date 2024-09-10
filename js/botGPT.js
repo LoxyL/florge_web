@@ -5,18 +5,7 @@
 export class BotGPT {
     constructor() {
         this.streamControl = null;
-        this.systemPrompt = `
-            Please output text where mathematical expressions are clearly distinguished by format. 
-            Inline formulas should be enclosed in '$...$', and block-level formulas should be enclosed in '$$...$$' or '\\[...\\]'. 
-            Ordinary text should not have any special formatting. For example:
-            - Ordinary text can be: "This is a formula."
-            - An inline formula should be: '$E=mc^2$'.
-            - A block-level formula should be:
-            $$
-            \\int_0^\\infty e^{-x^2} \\, dx = \\frac{\\sqrt{\\pi}}{2}
-            $$
-            Ensure all mathematical expressions comply with KaTeX formatting, and that the ordinary text is written in natural language.
-        `;
+        this.systemPrompt = ``;
         this.body = {
             model: 'gpt-4o-mini',
             messages: [

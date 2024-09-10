@@ -91,7 +91,7 @@ app.post('/gpt/record/:id', (req, res) => {
             return res.status(500).send(`Error saving Record ${id}`);
         }
         res.send('Done saving Records');
-        console.log(`Save record_list[${computeStringSizeMB(JSON.stringify(data))/1024/1024}MB]`);
+        console.log(`Save record_${id}[${computeStringSizeMB(JSON.stringify(data))/1024/1024}MB]`);
     });
 })
 
@@ -126,7 +126,7 @@ app.get('/gpt/record/:id', (req, res) => {
             return res.status(500).send(`Error reading "record_${id}.json"`);
         }
         res.json(JSON.parse(data));
-        console.log(`Load record_list[${computeStringSizeMB(JSON.stringify(data))/1024/1024}MB]`);
+        console.log(`Load record_${id}[${computeStringSizeMB(JSON.stringify(data))/1024/1024}MB]`);
     });
 })
 

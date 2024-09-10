@@ -85,8 +85,9 @@ body {
   width: 200px;
   height: 60px;
   border-radius: 30px;
-  font-family: 'Bauhaus 93';
-  font-size: 30px;
+  font-family: 'Broadway';
+  letter-spacing: 0px;
+  font-size: 35px;
   cursor: pointer;
   transition: 0.3s;
 }
@@ -381,7 +382,7 @@ body {
 }
 
 .record-option:hover {
-  height: 120px;
+  min-height: 120px;
   background-color: #1f2e26;
 }
 
@@ -545,6 +546,21 @@ body {
   font-size: 15px;
   margin-left: 20px;
   margin-top: 5px;
+}
+
+.config-tab-content textarea {
+  appearance: none;
+  resize: none;
+  width: 800px;
+  height: 400px;
+  color: gray;
+  font-size: 15px;
+  background-color: #000000;
+  border: 0px;
+  outline: none;
+  border-radius: 0px;
+  box-sizing: border-box;
+  padding: 5px 10px;
 }
 
 .config-tab-content input {

@@ -3,7 +3,7 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Chat Tool</title>
+	<title>Florge</title>
 	<link rel="stylesheet" href="./css/main_styles.css">
 	<link rel="stylesheet" href="./css/GPT-dialog.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.5.1/styles/default.min.css">
@@ -29,15 +29,15 @@
 
 	<div class="GPT-window">
 		<div id="sidebar-GPT" class="sidebar-GPT">
-			<a target="_blank" href="https://github.com/LoxyL/chat_tool_web" class="sidebar-title">
-				Forge Flow
+			<a target="_blank" href="https://github.com/LoxyL/florge_web" class="sidebar-title">
+				Florge
 			</a>
 			<div class="sidebar-GPT-model-setting">
 				<label for="model-GPT">Model</label>
 				<br>
 				<select name="model-GPT" id="model-GPT" class="sidebar-GPT-select">
 					<option value="gpt-4o-mini">GPT-4o-mini</option>
-					<option value="gpt-4o">GPT-4o</option>
+					<option value="chatgpt-4o-latest">GPT-4o</option>
 					<option value="gpt-4-turbo">GPT-4</option>
 					<option value="gpt-3.5-turbo">GPT-3.5</option>
 				</select>
@@ -105,18 +105,20 @@
 						<input name="config-apikey-GPT" type="password" id="config-apikey-GPT">
 					</div>
 				</div>
-				<div id="config-tab-content-function" class="config-tab-content">
+				<div id="config-tab-content-function" class="config-tab-content" style="display: none;">
 					
 				</div>
-				<div id="config-tab-content-system" class="config-tab-content">
-					
+				<div id="config-tab-content-system" class="config-tab-content" style="display: none;">
+					<div class="config-tab-content-part">
+						<label for="config-system-prompt-GPT">System Prompt</label>
+						<textarea name="config-system-prompt-GPT" id="config-system-prompt-GPT" type="text"></textarea>
+					</div>
 				</div>
 			</div>
 			<div class="config-buttons">
 				<button class="config-button" id="s" onclick="configSave()">&#9660;</button>		
 				<button class="config-button" id="l" onclick="configLoad()">&#9650;</button>			
 			</div>
-
 		</div>
 	</div>
 <!-- 

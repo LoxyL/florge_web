@@ -53,7 +53,18 @@ export class DialogGPT {
 			}
 		});
 
-		let html = md.render(text);
+		const replaceOutsideCode = (text) => {
+			// 将文本按反引号分割
+			return text.split('`').map((part, index) => {
+				// 处理非代码部分（即索引为偶数的部分）
+				if (index % 2 === 0) {
+					return part.replace(/\\/g, '\\\\'); // 将反斜杠替换为双反斜杠
+				}
+				return part; // 代码部分保持不变
+			}).join('`'); // 将所有部分重新连接
+		};
+
+		let html = md.render(replaceOutsideCode(text));
 		return html;
 	}
 
@@ -328,6 +339,8 @@ export class DialogGPT {
 			botBubble.innerHTML = this._processTextDisplay(receive_content);
 			renderMathInElement(botSet, {
 				delimiters: [
+					{left: "\\[", right: "\\]", display: true},
+					{left: "\\(", right: "\\)", display: false},
 					{left: "$$", right: "$$", display: true},
 					{left: "$", right: "$", display: false}
 				]
@@ -608,6 +621,8 @@ export class DialogGPT {
 				
 				renderMathInElement(botSet, {
 					delimiters: [
+						{left: "\\[", right: "\\]", display: true},
+						{left: "\\(", right: "\\)", display: false},
 						{left: "$$", right: "$$", display: true},
 						{left: "$", right: "$", display: false}
 					]
