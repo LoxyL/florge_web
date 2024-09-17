@@ -453,7 +453,7 @@ body {
   transition: all 0.3s ease;
 }
 
-.config-container:hover {
+.config-container.active {
   width: 800px;
   height: 600px;
   background-color: #424242;
@@ -463,7 +463,13 @@ body {
 .config-container:hover svg {
   /* visibility: hidden;
   opacity: 0; */
-  transform: rotate(260deg);
+  transform: scale(1.1);
+}
+
+.config-container.active svg {
+  /* visibility: hidden;
+  opacity: 0; */
+  transform: rotate(180deg);
 }
 
 .config-container-content {
@@ -479,7 +485,7 @@ body {
   transition: all 0.3s ease;
 }
 
-.config-container:hover .config-container-content {
+.config-container.active .config-container-content {
   visibility: visible;
   opacity: 1;
 }

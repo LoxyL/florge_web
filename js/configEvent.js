@@ -1,3 +1,18 @@
+function configContainerInit(){
+    const container = document.getElementById("config-container");
+
+    container.addEventListener('click', function(event){
+        container.classList.remove("active");
+        container.classList.add("active");
+        event.stopPropagation();
+    })
+
+    document.addEventListener('click', function() {
+        container.classList.remove("active");
+    });
+}
+
+
 async function configSave() {
     const urlGPT = document.getElementById('config-source-GPT').value;
     const apikeyGPT = document.getElementById('config-apikey-GPT').value;
@@ -50,5 +65,6 @@ function configOpenTab(event, tabName) {
     document.getElementById(tabName).style.display = "flex";
     event.currentTarget.className += " active";
 }
-  
+
+configContainerInit();
 configLoad();

@@ -36,3 +36,7 @@ window.newChat = newChat;
 window.switchRecord = switchRecord;
 window.deleteRecord = deleteRecord;
 window.streamStop = streamStop;
+
+document.addEventListener('contextmenu', (event)=>{
+    event.preventDefault();
+})
