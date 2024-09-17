@@ -29,8 +29,8 @@
 2. **克隆此仓库到本地机器**：
 
     ```sh
-    git clone https://github.com/LoxyL/chat_tool_web.git
-    cd chat_tool_web
+    git clone https://github.com/LoxyL/florge_web.git
+    cd florge_web
     ```
 
 3. **安装 Express**：

@@ -29,8 +29,8 @@ To get started with this project, you need to follow these steps:
 2. **Clone this repository to your local machine**:
 
     ```sh
-    git clone https://github.com/LoxyL/chat_tool_web.git
-    cd chat_tool_web
+    git clone https://github.com/LoxyL/florge_web.git
+    cd florge_web
     ```
 
 3. **Install Express**:
