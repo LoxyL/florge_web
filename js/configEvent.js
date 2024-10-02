@@ -16,10 +16,12 @@ function configContainerInit(){
 async function configSave() {
     const urlGPT = document.getElementById('config-source-GPT').value;
     const apikeyGPT = document.getElementById('config-apikey-GPT').value;
+    const systemPromptGPT = document.getElementById('config-system-prompt-GPT').value;
 
     const config = {
         urlGPT: urlGPT,
-        apikeyGPT: apikeyGPT
+        apikeyGPT: apikeyGPT,
+        systemPromptGPT: systemPromptGPT
     }
 
     try {
@@ -44,6 +46,7 @@ async function configLoad() {
 
         document.getElementById('config-source-GPT').value = config.urlGPT;
         document.getElementById('config-apikey-GPT').value = config.apikeyGPT;
+        document.getElementById('config-system-prompt-GPT').value = config.systemPromptGPT;
     } catch (error) {
         alert('Fail loading Configurations.');
     }

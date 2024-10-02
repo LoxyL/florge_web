@@ -25,6 +25,7 @@ export class BotGPT {
         this.src = document.getElementById('config-source-GPT').value;
         this.apiKey = document.getElementById('config-apikey-GPT').value;
         this.model = document.getElementById("model-GPT").value;
+        this.systemPrompt = document.getElementById("config-system-prompt-GPT").value;;
         this.maxTokens = Number(document.getElementById("max-tokens").value);
     }
 
@@ -36,6 +37,7 @@ export class BotGPT {
         };
         this.body.model = this.model;
         this.body.max_tokens = this.maxTokens;
+        this.body.messages[0].content = this.systemPrompt;
         console.log("[INFO]Current params:\n[INFO]\tmodel: ", this.model, "\n[INFO]\tmax_tokens: ", this.maxTokens);
     }
 
