@@ -2,15 +2,17 @@ import {BotGPT, AgentGPT} from "./botGPT.js";
 
 export class DialogGPT {
 	constructor() {
+		this.useGlobalSystemPrompt = false;
 		this.dialog_num = 0;
 		this.bot = new BotGPT();
 		this.dialog_num++;
 		this.agent = new AgentGPT();
 		this.current_record_id = 0;
-		this._loadRecordList();
 		this.useAgent = true;
 		this.ctrlPressed = false;
+		this._switchInteract();
 		this._windowInteract();
+		this._loadRecordList();
 	}
 
 	_windowInteract() {
@@ -21,6 +23,33 @@ export class DialogGPT {
 		window.addEventListener('keyup', event => {
 			if(event.key === 'Control') this.ctrlPressed = false;
 		})
+	}
+
+	_switchInteract() {
+		const globalSystemPromptSwitch = document.getElementById("config-use-global-system-prompt");
+
+		globalSystemPromptSwitch.addEventListener("change", () => {
+            if (globalSystemPromptSwitch.checked) {
+				const globalSystemSet = document.getElementById("chat-container-GPT-messages-global-system");
+
+				this.useGlobalSystemPrompt = true;
+				this.bot.useSystemPrompt = true;
+				globalSystemSet.style.display = 'flex';
+                console.log('[INFO][CONFIG]Enable global system prompt.');
+            } else {
+				const globalSystemSet = document.getElementById("chat-container-GPT-messages-global-system");
+
+				this.useGlobalSystemPrompt = false;
+				this.bot.useSystemPrompt = false;
+				globalSystemSet.style.display = 'none';
+                console.log('[INFO][CONFIG]Disable global system prompt.');
+            }
+		})
+
+		if(globalSystemPromptSwitch.checked) {
+			this.useGlobalSystemPrompt = true;
+			this.bot.useSystemPrompt = true;
+		}
 	}
 
 	_getInputGPT() {
@@ -287,6 +316,26 @@ export class DialogGPT {
 		});
 	}
 
+	async _append_system_prompt(content){
+		this.bot.appendSystemMessage(content);
+		await this._saveRecordContent();
+
+		const chatContainer = document.getElementById("chat-container-GPT-messages");
+
+		const localSystemSet = document.createElement("div");
+		localSystemSet.setAttribute("id", 'chat-container-GPT-messages-local-system');
+		localSystemSet.setAttribute("class", "chat-container-GPT-messages-local-system");
+		
+		const localSystemBubble = document.createElement("div");
+		localSystemBubble.setAttribute("class", "chat-container-GPT-messages-local-system-bubble");
+		localSystemBubble.innerHTML = `<div>Local System</div><pre>${content}</pre>`;
+
+		localSystemSet.appendChild(localSystemBubble);
+		chatContainer.appendChild(localSystemSet);
+		
+		chatContainer.scrollTop = chatContainer.scrollHeight;
+	}
+
 	_send_message(inputValue) {
 		const userSet = document.createElement("div");
 		userSet.setAttribute("id", 'chat-container-GPT-messages-user-'+this.dialog_num);
@@ -378,17 +427,22 @@ export class DialogGPT {
 	async send() {
 		let inputValue = this._getInputGPT();
 		if(inputValue !== ""){
-			window.isInteracting = true;
-			this._switchToStopButton();
-			console.log("[INFO]Send content: ", inputValue);
-			this._send_message(inputValue);
-			this.dialog_num += 1;
-			await this._receive_message(inputValue);
-			this.dialog_num += 1;
-			await this._saveRecordContent();
-			await this._nameRecord();
-			this._switchToSendButton();
-			window.isInteracting = false;
+			if(inputValue.startsWith("/system ")){
+				console.log("[INFO]Append system prompt: ", inputValue.slice(8));
+				this._append_system_prompt(inputValue.slice(8));
+			} else {
+				window.isInteracting = true;
+				this._switchToStopButton();
+				console.log("[INFO]Send content: ", inputValue);
+				this._send_message(inputValue);
+				this.dialog_num += 1;
+				await this._receive_message(inputValue);
+				this.dialog_num += 1;
+				await this._saveRecordContent();
+				await this._nameRecord();
+				this._switchToSendButton();
+				window.isInteracting = false;
+			}
 		} 
 	}
 
@@ -545,8 +599,7 @@ export class DialogGPT {
 		recordList.recordTitles.unshift('New Chat');
 		await this._saveRecordData([]);
 		await this._saveRecordList(recordList);
-		await this._loadRecordList();
-		this._loadRecordContent();
+		this._loadRecordList();
 	}
 
 	async deleteRecord(id) {
@@ -580,10 +633,26 @@ export class DialogGPT {
 		this._clear();
 		let recordContents = await this._getRecordData();
 		this.bot.body.messages.push(...recordContents);
+
+		const chatContainer = document.getElementById("chat-container-GPT-messages");
+
+		const globalSystemSet = document.createElement("div");
+		globalSystemSet.setAttribute("id", 'chat-container-GPT-messages-global-system');
+		globalSystemSet.setAttribute("class", "chat-container-GPT-messages-global-system");
 		
+		const globalSystemBubble = document.createElement("div");
+		globalSystemBubble.setAttribute("class", "chat-container-GPT-messages-global-system-bubble");
+		globalSystemBubble.innerHTML = `<div>Global System</div><pre>${document.getElementById("config-system-prompt-GPT").value}</pre>`;
+
+		globalSystemSet.appendChild(globalSystemBubble);
+		chatContainer.appendChild(globalSystemSet);
+
+		if(this.useGlobalSystemPrompt == false) {
+			globalSystemSet.style.display = 'none';
+		}
+
 		for(let i in recordContents){
 			const piece = recordContents[i];
-			const chatContainer = document.getElementById("chat-container-GPT-messages");
 			if(piece.role == 'user'){
 				const userSet = document.createElement("div");
 				userSet.setAttribute("id", 'chat-container-GPT-messages-user-'+this.dialog_num);
@@ -632,6 +701,18 @@ export class DialogGPT {
 				rawContainer.setAttribute("id", "raw-message");
 				rawContainer.innerHTML = this._processRawDisplay(piece.content);
 				botBubble.appendChild(rawContainer);
+			}
+			if(piece.role == 'system'){
+				const localSystemSet = document.createElement("div");
+				localSystemSet.setAttribute("id", 'chat-container-GPT-messages-local-system');
+				localSystemSet.setAttribute("class", "chat-container-GPT-messages-local-system");
+				
+				const localSystemBubble = document.createElement("div");
+				localSystemBubble.setAttribute("class", "chat-container-GPT-messages-local-system-bubble");
+				localSystemBubble.innerHTML = `<div>Local System</div><pre>${piece.content}</pre>`;
+		
+				localSystemSet.appendChild(localSystemBubble);
+				chatContainer.appendChild(localSystemSet);
 			}
 			this._codeInteractAll();
 

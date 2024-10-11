@@ -104,13 +104,34 @@
 						<label for="config-apikey-GPT">API key</label>
 						<input name="config-apikey-GPT" type="password" id="config-apikey-GPT">
 					</div>
+					<div class="config-tab-content-part">
+						<label for="config-cx-google-search">Google Search Engine</label>
+						<input name="config-cx-google-search" type="text" id="config-cx-google-search">
+						<label for="config-apikey-google-search">API key</label>
+						<input name="config-apikey-google-search" type="password" id="config-apikey-google-search">
+					</div>
 				</div>
 				<div id="config-tab-content-function" class="config-tab-content" style="display: none;">
+					<div class="config-tab-content-part">
+						<label for="config-proxy-url">Proxy Url
+							<label class="switch">
+								<input type="checkbox" name="config-use-proxy" id="config-use-proxy" checked>
+								<span></span>
+							</label>
+						</label>
+						<input name="config-proxy-url" type="text" id="config-proxy-url">
+					</div>
 					
 				</div>
 				<div id="config-tab-content-system" class="config-tab-content" style="display: none;">
 					<div class="config-tab-content-part">
-						<label for="config-system-prompt-GPT">System Prompt</label>
+						<label for="config-system-prompt-GPT">
+							Global System Prompt
+							<label class="switch">
+								<input type="checkbox" name="config-use-global-system-prompt" id="config-use-global-system-prompt" checked>
+								<span></span>
+							</label>
+						</label>
 						<textarea name="config-system-prompt-GPT" id="config-system-prompt-GPT" type="text"></textarea>
 					</div>
 				</div>

@@ -1,5 +1,5 @@
 body {
-  font-family: "微软雅黑";
+  font-family: "Microsoft YaHei";
   background-color: #121212;
   color: #ffffff;
   height: 100vh;
@@ -199,14 +199,15 @@ body {
   box-sizing: border-box;
   resize: none;
   /* overflow-y: auto; */
-  overflow-y: hidden;
-  font-family: '微软雅黑';
+  overflow-y: auto;
+  font-family: 'Microsoft YaHei';
   font-size: 15px;
   border: 2px, solid, #333333;
   transition: all 0.2s ease;
 }
 
 .chat-container-GPT-input textarea::-webkit-scrollbar {
+  display: none;
   width: 2px;
   height: 6px;
 }
@@ -376,7 +377,7 @@ body {
   background-color: #223329;
   border: 0px;
   border-radius: 4px;
-  font-family: '微软雅黑';
+  font-family: 'Microsoft YaHei';
   font-size: 15px;
   overflow: hidden;
   cursor: pointer;
@@ -538,22 +539,81 @@ body {
   box-sizing: border-box;
   padding: 20px;
   width: 800px;
+  height: 490px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.config-tab-content::-webkit-scrollbar {
+  display: none;
 }
 
 .config-tab-content-part {
   display: flex;
+  width: 800px;
   flex-direction: column;
   align-items: flex-start;
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: #414141 5px solid;
 }
 
 .config-tab-content-part label {
-  font-family: '微软雅黑';
+  font-family: 'Microsoft YaHei';
+  display: flex;
+  flex-direction: row;
   font-size: 15px;
   margin-left: 20px;
   margin-top: 5px;
+}
+
+.config-tab-content-part .switch {
+  position: relative;
+  display: block;
+  width: 28px;
+  height: 14px;
+}
+
+.config-tab-content-part .switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.config-tab-content-part .switch span {
+  position: absolute;
+  cursor: pointer;
+  border-radius: 7px;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #3d3d3d;
+  border: #4b4b4b 1px solid;
+  transition: .4s;
+}
+
+.config-tab-content-part .switch span::before {
+  position: absolute;
+  content: "";
+  height: 10px;
+  width: 10px;
+  border-radius: 5px;
+  left: 1px;
+  bottom: 1px;
+  background-color: white;
+  transition: .4s;
+}
+
+.config-tab-content-part .switch input:checked + span {
+    background-color: #0ec588;
+}
+
+.config-tab-content-part .switch input:checked + span:before {
+    transform: translateX(14px);
 }
 
 .config-tab-content textarea {
@@ -569,6 +629,10 @@ body {
   border-radius: 0px;
   box-sizing: border-box;
   padding: 5px 10px;
+}
+
+.config-tab-content textarea::-webkit-scrollbar {
+  display: none;
 }
 
 .config-tab-content input {

@@ -4,6 +4,7 @@
 
 export class BotGPT {
     constructor() {
+        this.useSystemPrompt = false;
         this.streamControl = null;
         this.systemPrompt = ``;
         this.body = {
@@ -25,7 +26,11 @@ export class BotGPT {
         this.src = document.getElementById('config-source-GPT').value;
         this.apiKey = document.getElementById('config-apikey-GPT').value;
         this.model = document.getElementById("model-GPT").value;
-        this.systemPrompt = document.getElementById("config-system-prompt-GPT").value;;
+        if(this.useSystemPrompt) {
+            this.systemPrompt = document.getElementById("config-system-prompt-GPT").value;
+        } else {
+            this.systemPrompt = '';
+        }
         this.maxTokens = Number(document.getElementById("max-tokens").value);
     }
 
@@ -63,6 +68,15 @@ export class BotGPT {
             this.streamControl.abort();
             this.streamControl = null;
         }
+    }
+
+    appendSystemMessage(content) {
+		const localSystemMessage = {
+			role: 'system',
+			content: content
+		}
+
+        this.body.messages.push(localSystemMessage);
     }
 
     async *interact(contentSend) {

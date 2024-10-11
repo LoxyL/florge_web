@@ -16,12 +16,22 @@ function configContainerInit(){
 async function configSave() {
     const urlGPT = document.getElementById('config-source-GPT').value;
     const apikeyGPT = document.getElementById('config-apikey-GPT').value;
+    const cxGoogleSearch = document.getElementById('config-cx-google-search').value;
+    const apikeyGoogleSearch = document.getElementById('config-apikey-google-search').value;
     const systemPromptGPT = document.getElementById('config-system-prompt-GPT').value;
+    const useGlobalSystemPrompt = document.getElementById('config-use-global-system-prompt').checked;
+    const useProxy = document.getElementById('config-use-proxy').checked;
+    const proxyUrl = document.getElementById('config-proxy-url').value;
 
     const config = {
         urlGPT: urlGPT,
         apikeyGPT: apikeyGPT,
-        systemPromptGPT: systemPromptGPT
+        cxGoogleSearch: cxGoogleSearch,
+        apikeyGoogleSearch: apikeyGoogleSearch,
+        systemPromptGPT: systemPromptGPT,
+        useGlobalSystemPrompt: useGlobalSystemPrompt,
+        useProxy: useProxy,
+        proxyUrl: proxyUrl
     }
 
     try {
@@ -33,7 +43,7 @@ async function configSave() {
             body: JSON.stringify(config)
         });
         const data = await response.text();
-        console.log('[INFO]', data);
+        console.log('[INFO][CONFIG]', data);
     } catch (error) {
         console.error('Error:', error);
     }
@@ -46,7 +56,12 @@ async function configLoad() {
 
         document.getElementById('config-source-GPT').value = config.urlGPT;
         document.getElementById('config-apikey-GPT').value = config.apikeyGPT;
+        document.getElementById('config-cx-google-search').value = config.cxGoogleSearch;
+        document.getElementById('config-apikey-google-search').value = config.apikeyGoogleSearch;
         document.getElementById('config-system-prompt-GPT').value = config.systemPromptGPT;
+        document.getElementById('config-use-global-system-prompt').checked = config.useGlobalSystemPrompt;
+        document.getElementById('config-use-proxy').checked = config.useProxy;
+        document.getElementById('config-proxy-url').value = config.proxyUrl;
     } catch (error) {
         alert('Fail loading Configurations.');
     }

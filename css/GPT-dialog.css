@@ -1,3 +1,91 @@
+.chat-container-GPT-messages-global-system,
+.chat-container-GPT-messages-local-system {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    box-sizing: border-box;
+    padding: 10px;
+    width: 100%;
+}
+
+.chat-container-GPT-messages-global-system-bubble,
+.chat-container-GPT-messages-local-system-bubble {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 30px;
+    width: 200px;
+    border-radius: 10px;
+    transition: 0.3s;
+    overflow-y: auto;
+}
+
+.chat-container-GPT-messages-global-system-bubble {
+    background-color: #2b2938;
+    border: #2b2938 3px solid;
+}
+
+.chat-container-GPT-messages-local-system-bubble {
+    background-color: #443523;
+    border: #443523 3px solid;
+}
+
+.chat-container-GPT-messages-global-system-bubble::-webkit-scrollbar,
+.chat-container-GPT-messages-local-system-bubble::-webkit-scrollbar {
+    display: none;
+}
+
+.chat-container-GPT-messages-global-system-bubble div,
+.chat-container-GPT-messages-local-system-bubble div {
+    position: sticky;
+    top: 3px;
+    font-family: 'Berlin Sans FB';
+    font-size: 20px;
+    transition: 0.3s;
+}
+
+.chat-container-GPT-messages-global-system-bubble pre,
+.chat-container-GPT-messages-local-system-bubble pre {
+    position: absolute;
+    top: 0;
+    display: block;
+    white-space: pre-wrap;
+    text-align: center;
+    width: 580px;
+    margin: 10px;
+    font-family: 'Microsoft YaHei';
+    font-size: 15px;
+    opacity: 0;
+    transition: 0.3s;
+}
+
+.chat-container-GPT-messages-global-system-bubble:hover,
+.chat-container-GPT-messages-local-system-bubble:hover {
+    width: 600px;
+    height: 200px;
+}
+
+.chat-container-GPT-messages-global-system-bubble:hover {
+    background-color: #13101b;
+    border-color: #332c5e;
+}
+
+.chat-container-GPT-messages-local-system-bubble:hover {
+    background-color: #1b1710;
+    border-color: #5e472c;
+}
+
+.chat-container-GPT-messages-global-system-bubble:hover div,
+.chat-container-GPT-messages-local-system-bubble:hover div {
+    opacity: 0;
+}
+
+.chat-container-GPT-messages-global-system-bubble:hover pre,
+.chat-container-GPT-messages-local-system-bubble:hover pre {
+    opacity: 1;
+}
+
 .chat-container-GPT-messages-user {
     display: flex;
     flex-direction: row-reverse;
