@@ -83,14 +83,12 @@ export class DialogGPT {
 		});
 
 		const replaceOutsideCode = (text) => {
-			// 将文本按反引号分割
 			return text.split('`').map((part, index) => {
-				// 处理非代码部分（即索引为偶数的部分）
 				if (index % 2 === 0) {
-					return part.replace(/\\/g, '\\\\'); // 将反斜杠替换为双反斜杠
+					return part.replace(/\\/g, '\\\\');
 				}
-				return part; // 代码部分保持不变
-			}).join('`'); // 将所有部分重新连接
+				return part;
+			}).join('`');
 		};
 
 		let html = md.render(replaceOutsideCode(text));
