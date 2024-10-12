@@ -99,4 +99,4 @@ class searchWiki extends searchBase {
 
 
 engine = new searchWiki('http://127.0.0.1:7890', true);
-engine.getInfo('Java');
+engine.getInfo('VCR in physics');

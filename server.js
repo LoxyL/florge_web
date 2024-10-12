@@ -145,3 +145,7 @@ app.get('/gpt/record_remove/:id', (req, res) => {
         }
     });
 })
+
+app.post('/gpt/search/wiki', (req, res) => {
+    
+})

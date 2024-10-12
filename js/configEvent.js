@@ -23,6 +23,12 @@ async function configSave() {
     const useProxy = document.getElementById('config-use-proxy').checked;
     const proxyUrl = document.getElementById('config-proxy-url').value;
 
+    
+    const useChatSearchGPT = document.getElementById('config-use-chat-search-GPT').checked;
+    const useChatSearchWiki = document.getElementById('config-use-chat-search-GPT-wiki').checked;
+    const useChatSearchBaidu = document.getElementById('config-use-chat-search-GPT-baidu').checked;
+    const useChatSearchZhihu = document.getElementById('config-use-chat-search-GPT-zhihu').checked;
+
     const config = {
         urlGPT: urlGPT,
         apikeyGPT: apikeyGPT,
@@ -31,7 +37,11 @@ async function configSave() {
         systemPromptGPT: systemPromptGPT,
         useGlobalSystemPrompt: useGlobalSystemPrompt,
         useProxy: useProxy,
-        proxyUrl: proxyUrl
+        proxyUrl: proxyUrl,
+        useChatSearchGPT: useChatSearchGPT,
+        useChatSearchWiki: useChatSearchWiki,
+        useChatSearchBaidu: useChatSearchBaidu,
+        useChatSearchZhihu: useChatSearchZhihu
     }
 
     try {
@@ -62,6 +72,12 @@ async function configLoad() {
         document.getElementById('config-use-global-system-prompt').checked = config.useGlobalSystemPrompt;
         document.getElementById('config-use-proxy').checked = config.useProxy;
         document.getElementById('config-proxy-url').value = config.proxyUrl;
+
+        
+        document.getElementById('config-use-chat-search-GPT').checked = config.useChatSearchGPT;
+        document.getElementById('config-use-chat-search-GPT-wiki').checked = config.useChatSearchWiki;
+        document.getElementById('config-use-chat-search-GPT-baidu').checked = config.useChatSearchBaidu;
+        document.getElementById('config-use-chat-search-GPT-zhihu').checked = config.useChatSearchZhihu;
     } catch (error) {
         alert('Fail loading Configurations.');
     }

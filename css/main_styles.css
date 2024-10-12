@@ -558,7 +558,22 @@ body {
   align-items: flex-start;
   padding-bottom: 20px;
   margin-bottom: 20px;
-  border-bottom: #414141 5px solid;
+  border-bottom: #414141 10px solid;
+}
+
+.config-tab-content-part div {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  width: 780px;
+  height: 60px;
+  margin: 0px 10px 0px 10px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  border: #3b3b3b 4px solid;
+  /* padding: 5px; */
+  background-color: #181818;
 }
 
 .config-tab-content-part label {
