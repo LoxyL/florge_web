@@ -2,17 +2,18 @@ const axios = require('axios');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
 
-class searchBase {
+class SearchBase {
     constructor(proxyUrl, useProxy=false) {
         this._url = '';
         this._agent = new HttpsProxyAgent(proxyUrl);
         this._useProxy = useProxy;
     }
 
-    async getInfo(keyWord) {
+    async *getInfo(keyWord) {
         for await (const data of this._search(keyWord)) {
-            console.log('----Piece----');
+            console.log('Get Result:');
             console.log(data);
+            yield data;
         }
     }
 
@@ -21,7 +22,7 @@ class searchBase {
     async _extract(index) {}
 };
 
-class searchWiki extends searchBase {
+class SearchWiki extends SearchBase {
     constructor(proxyUrl, useProxy=false) {
         super(proxyUrl, useProxy);
         this._url = 'https://en.wikipedia.org/w/api.php';
@@ -54,7 +55,12 @@ class searchWiki extends searchBase {
                     // console.log(`Link: ${link}`);
                     // console.log('---');
     
-                    const data = await this._extract(pageId);
+                    const content = await this._extract(pageId);
+                    const data = {
+                        title: result.title,
+                        link: link,
+                        content: content
+                    }
                     yield data;
                 }
             } else {
@@ -97,6 +103,7 @@ class searchWiki extends searchBase {
     }
 }
 
+module.exports = {SearchWiki};
 
-engine = new searchWiki('http://127.0.0.1:7890', true);
+engine = new SearchWiki('http://127.0.0.1:7890', true);
 engine.getInfo('VCR in physics');

@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const bodyParser = require('body-parser');
+const {SearchWiki} = require('./back_end/search.js');
 
 function computeStringSizeMB(str) {
     return new Blob([str]).size;
@@ -146,6 +147,33 @@ app.get('/gpt/record_remove/:id', (req, res) => {
     });
 })
 
-app.post('/gpt/search/wiki', (req, res) => {
-    
-})
+app.post('/gpt/search/wiki', async (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+
+    try {
+        const body = req.body;
+        const keyword = body.keyword;
+        const useProxy = body.useProxy;
+        const proxyUrl = body.proxyUrl;
+
+        if (!keyword) {
+            return res.status(400).json({ error: 'Keyword is required' });
+        }
+
+        console.log{`Searching on Wiki for "${keyword}"`};
+
+        const search = new SearchWiki(proxyUrl, useProxy);
+        
+        for await (const data of search.getInfo(keyword)) {
+            res.write(JSON.stringify(data) + '<splitMark>');
+        }
+
+        res.end();
+    } catch (error) {
+        console.error('Error during search:', error);
+        if (error instanceof SomeSpecificError) {
+            return res.status(500).json({ error: 'A specific error occurred' });
+        }
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});

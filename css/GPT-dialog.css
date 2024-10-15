@@ -1,5 +1,6 @@
 .chat-container-GPT-messages-global-system,
-.chat-container-GPT-messages-local-system {
+.chat-container-GPT-messages-local-system,
+.chat-container-GPT-messages-search {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -27,17 +28,18 @@
 }
 
 .chat-container-GPT-messages-local-system-bubble {
-    background-color: #443523;
-    border: #443523 3px solid;
+    background-color: #303030;
+    border: #303030 3px solid;
 }
 
 .chat-container-GPT-messages-global-system-bubble::-webkit-scrollbar,
-.chat-container-GPT-messages-local-system-bubble::-webkit-scrollbar {
+.chat-container-GPT-messages-local-system-bubble::-webkit-scrollbar,
+.chat-container-GPT-messages-search-bubble::-webkit-scrollbar {
     display: none;
 }
 
-.chat-container-GPT-messages-global-system-bubble div,
-.chat-container-GPT-messages-local-system-bubble div {
+.chat-container-GPT-messages-global-system-bubble label,
+.chat-container-GPT-messages-local-system-bubble label {
     position: sticky;
     top: 3px;
     font-family: 'Berlin Sans FB';
@@ -51,10 +53,10 @@
     top: 0;
     display: block;
     white-space: pre-wrap;
-    text-align: center;
+    /* text-align: center; */
     width: 580px;
     margin: 10px;
-    font-family: 'Microsoft YaHei';
+    font-family: 'Times New Roman';
     font-size: 15px;
     opacity: 0;
     transition: 0.3s;
@@ -72,18 +74,109 @@
 }
 
 .chat-container-GPT-messages-local-system-bubble:hover {
-    background-color: #1b1710;
-    border-color: #5e472c;
+    background-color: #111111;
+    border-color: #686868;
 }
 
-.chat-container-GPT-messages-global-system-bubble:hover div,
-.chat-container-GPT-messages-local-system-bubble:hover div {
+.chat-container-GPT-messages-global-system-bubble:hover label,
+.chat-container-GPT-messages-local-system-bubble:hover label {
     opacity: 0;
 }
 
 .chat-container-GPT-messages-global-system-bubble:hover pre,
 .chat-container-GPT-messages-local-system-bubble:hover pre {
     opacity: 1;
+}
+
+.chat-container-GPT-messages-search-bubble {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 90%;
+    height: 600px;
+    border: 0px;
+    border-radius: 10px;
+    background-color: #0c0c0c;
+    scroll-behavior: smooth;
+    transition: 0.3s;
+    overflow-y: auto;
+}
+
+.chat-container-GPT-messages-search-bubble.done {
+    height: 200px;
+}
+
+.chat-container-GPT-messages-search-bubble.done:hover {
+    height: 800px;
+}
+
+.chat-search-title {
+    font-family: 'Berlin Sans FB';
+    font-size: 20px;
+}
+
+.chat-search-display {
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+    width: 80%;
+}
+
+.chat-search-display .search {
+    margin: 10px;
+    padding: 10px;
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+    border-radius: 10px;
+    background-color: #191b25;
+}
+
+.chat-search-display .source {
+    padding: 10px;
+    border-radius: 5px;
+    font-family: 'Berlin Sans FB';
+    font-size: 30px;
+    background-color: #00000065;
+}
+
+.chat-search-display .keyword {
+    padding: 5px;
+    font-family: 'Times New Roman';
+    text-align: center;
+    font-size: 25px;
+    width: 100%;
+    border-bottom: #ffffff46 2px solid;
+}
+
+.chat-search-display .item {
+    margin: 10px;
+    padding: 10px;
+    display: flex;
+    align-items: flex-start;
+    flex-direction: column;
+    border-radius: 10px;
+    background-color: #42434d;
+}
+
+.chat-search-display .item-title {
+    padding: 10px;
+    border-radius: 5px;
+    font-family: 'Berlin Sans FB';
+    font-size: 20px;
+    background-color: #00000065;
+}
+
+.chat-search-display .item-content {
+    margin: 10px;
+    padding: 10px;
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+    font-family: 'Times New Roman';
+    border-radius: 10px;
+    background-color: #42434d;
 }
 
 .chat-container-GPT-messages-user {
@@ -123,7 +216,7 @@
 
 .chat-container-GPT-messages-user-bubble pre {
     white-space: pre-wrap;
-    font-family: '微软雅黑';
+    font-family: 'Microsoft YaHei';
 }
 
 .chat-container-GPT-messages-user-bubble:hover {
@@ -161,7 +254,7 @@
 #raw-message {
     display: none;
     white-space: pre-wrap;
-    font-family: '微软雅黑';
+    font-family: 'Microsoft YaHei';
 }
 
 .chat-container-GPT-messages-bot-bubble {

@@ -326,7 +326,7 @@ export class DialogGPT {
 		
 		const localSystemBubble = document.createElement("div");
 		localSystemBubble.setAttribute("class", "chat-container-GPT-messages-local-system-bubble");
-		localSystemBubble.innerHTML = `<div>Local System</div><pre>${content}</pre>`;
+		localSystemBubble.innerHTML = `<label>Local System</label><pre>${content}</pre>`;
 
 		localSystemSet.appendChild(localSystemBubble);
 		chatContainer.appendChild(localSystemSet);
@@ -422,7 +422,169 @@ export class DialogGPT {
 		document.getElementById("stop-button").style.display = 'none';
 	}
 
+	async _varifySearch(inputValue) {
+		const varifyPrompt = `Please analyze the user's question to determine if a search is needed:
+		1. If the question involves specific factual content, numbers, the latest data, or requires up-to-date information (e.g., event dates, statistical data, real-time reports, etc.), respond with "Y" (search needed).
+		2. If the question is general discussion, based on common knowledge, or can be answered directly with existing knowledge, respond with "N" (no search needed).`;
+		let tmp = ''; let activateSearch = false;
+		for await (const piece of this.agent.interact(varifyPrompt, inputValue)) {
+			tmp += piece;
+		}
+		console.log(tmp);
+		if(tmp == 'Y') {
+			activateSearch = true;
+		}
+		return activateSearch;
+	}
+
+	async _generateKeyword(inputValue) {
+		const keywordPrompt = `Please generate relevant keywords based on the user's question and return them in a JSON list format, ensuring that all keywords are in English. These keywords should accurately reflect the core content of the question for subsequent search purposes.
+		**Example Format:**
+		{
+			"keywords": [
+				"keyword1",
+				"keyword2",
+				"keyword3"
+			]
+		}
+		**Notes:**
+		1. When the question involves specific facts or data, extract key nouns and phrases, ensuring they are returned in English.
+		2. For information related to time, place, or persons, ensure to generate the English translations of relevant variables.
+		3. Ensure that the keywords are concise and clear, effectively guiding the search.
+		**Example Question:**  
+		User asks: “What is the capital of China?”
+		**Expected Output:**
+		{
+			"keywords": [
+				"China",
+				"capital",
+				"Beijing"
+			]
+		}
+		Please ensure that the generated JSON structure is correct and accurately reflects the user's question content, while also keeping in mind that all keywords must be in English.`;
+		let result = '';
+		for await (const piece of this.agent.interact(keywordPrompt, inputValue)) {
+			result += piece;
+		}
+		console.log(result);
+
+		return JSON.parse(result).keywords;
+	}
+
+	async _internetAccess(inputValue) {
+		const activateSearch = await this._varifySearch(inputValue);
+
+		if(activateSearch) {
+			const simplifyPrompt = `Simplify this passage to less than 100 words.`;
+	
+			const chatContainer = document.getElementById("chat-container-GPT-messages");
+	
+			const searchSet = document.createElement("div");
+			searchSet.setAttribute("class", "chat-container-GPT-messages-search");
+			chatContainer.appendChild(searchSet);
+			
+			const searchBubble = document.createElement("div");
+			searchBubble.setAttribute("class", "chat-container-GPT-messages-search-bubble");
+			searchSet.appendChild(searchBubble);
+	
+			const searchDisplay = document.createElement("div");
+			searchDisplay.setAttribute("class", "chat-search-display");
+			searchBubble.appendChild(searchDisplay);
+	
+			const searchTitle = document.createElement("div");
+			searchTitle.setAttribute("class", "chat-search-title");
+			searchTitle.innerHTML = "Analyzing..."
+			searchBubble.appendChild(searchTitle);
+
+			chatContainer.scrollTop = chatContainer.scrollHeight;
+
+			const keywords = await this._generateKeyword(inputValue);
+			searchTitle.innerHTML = "Searching..."
+
+	
+			const useProxy = document.getElementById("config-use-proxy").checked;
+			const useWiki = document.getElementById("config-use-chat-search-GPT-wiki").checked;
+			const useBaidu = document.getElementById("config-use-chat-search-GPT-baidu").checked;
+			const useZhihu = document.getElementById("config-use-chat-search-GPT-zhihu").checked;
+			
+			if(useWiki) {
+				const wikiBlock = document.createElement("div");
+				wikiBlock.setAttribute("class", "search");
+				wikiBlock.innerHTML = `<div class="source">Wiki</div>\n<div class="keyword">${keywords.join(' ')}</div>`
+				searchDisplay.appendChild(wikiBlock);
+	
+				for await (const item of this._searchFor(keywords.join(' '), 'wiki', useProxy)) {
+					console.log(item);
+	
+					const itemBlock = document.createElement("div");
+					itemBlock.setAttribute("class", "item");
+					itemBlock.innerHTML = `<div class="item-title">${item.title}</div>`;
+					wikiBlock.appendChild(itemBlock);
+	
+					const itemContent = document.createElement('div');
+					itemContent.setAttribute('class', 'item-content');
+					itemBlock.appendChild(itemContent);
+					searchBubble.scrollTop = searchBubble.scrollHeight;
+	
+					let content = '';
+					const contentIter = this.agent.interact(simplifyPrompt, item.content);
+					for await (const piece of contentIter) {
+						content += piece;
+						itemContent.innerHTML = content;
+						searchBubble.scrollTop = searchBubble.scrollHeight;
+					}
+	
+				}
+			}
+	
+			searchBubble.classList.add('done');
+			searchTitle.innerHTML = "Done."
+		}
+	}
+
+	async *_searchFor(keyword, platform, useProxy=false) {
+		try {
+			const proxyUrl = document.getElementById('config-proxy-url').value;
+			const data = {
+				keyword: keyword,
+				useProxy: useProxy,
+				proxyUrl: proxyUrl
+			}
+
+			const response = await fetch(`/gpt/search/${platform}`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify(data)
+			});
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder('utf-8'); 
+
+			while(true) {
+				const {value, done} = await reader.read();
+
+				if(value) {
+					const chunk = decoder.decode(value, {stream: true});
+					const lines = chunk.split('<splitMark>').filter(line => line);
+
+					for (const line of lines) {
+						yield JSON.parse(line);
+					}
+				}
+
+				if(done) {
+					break;
+				}
+			}
+		} catch (error) {
+			console.error('Error:', error);
+		}
+	}
+
 	async send() {
+		const useChatSearch = document.getElementById('config-use-chat-search-GPT').checked;
+
 		let inputValue = this._getInputGPT();
 		if(inputValue !== ""){
 			if(inputValue.startsWith("/system ")){
@@ -430,10 +592,13 @@ export class DialogGPT {
 				this._append_system_prompt(inputValue.slice(8));
 			} else {
 				window.isInteracting = true;
-				this._switchToStopButton();
-				console.log("[INFO]Send content: ", inputValue);
 				this._send_message(inputValue);
 				this.dialog_num += 1;
+				if(useChatSearch){
+					await this._internetAccess(inputValue);
+				}
+				this._switchToStopButton();
+				console.log("[INFO]Send content: ", inputValue);
 				await this._receive_message(inputValue);
 				this.dialog_num += 1;
 				await this._saveRecordContent();
@@ -488,7 +653,7 @@ export class DialogGPT {
 
 	async _removeRecordData(id) {
 		try {
-			const response = await fetch(`http://localhost:30962/gpt/record_remove/${id}`);
+			const response = await fetch(`/gpt/record_remove/${id}`);
 			const data = await response.json();
 			return data;
 		} catch (error) {
@@ -499,7 +664,7 @@ export class DialogGPT {
 
 	async _getRecordList() {
 		try {
-			const response = await fetch(`http://localhost:30962/gpt/record`);
+			const response = await fetch(`/gpt/record`);
 			const data = await response.json();
 			return data;
 		} catch (error) {
@@ -510,7 +675,7 @@ export class DialogGPT {
 
 	async _saveRecordList(data) {
 		try {
-			fetch(`http://localhost:30962/gpt/record`, {
+			fetch(`/gpt/record`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json'
@@ -524,7 +689,7 @@ export class DialogGPT {
 
 	async _getRecordData() {
 		try {
-			const response = await fetch(`http://localhost:30962/gpt/record/${this.current_record_id}`);
+			const response = await fetch(`/gpt/record/${this.current_record_id}`);
 			const data = await response.json();
 			return data;
 		} catch (error) {
@@ -535,7 +700,7 @@ export class DialogGPT {
 
 	async _saveRecordData(data) {
 		try {
-			fetch(`http://localhost:30962/gpt/record/${this.current_record_id}`, {
+			fetch(`/gpt/record/${this.current_record_id}`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json'
@@ -640,7 +805,7 @@ export class DialogGPT {
 		
 		const globalSystemBubble = document.createElement("div");
 		globalSystemBubble.setAttribute("class", "chat-container-GPT-messages-global-system-bubble");
-		globalSystemBubble.innerHTML = `<div>Global System</div><pre>${document.getElementById("config-system-prompt-GPT").value}</pre>`;
+		globalSystemBubble.innerHTML = `<label>Global System</label><pre>${document.getElementById("config-system-prompt-GPT").value}</pre>`;
 
 		globalSystemSet.appendChild(globalSystemBubble);
 		chatContainer.appendChild(globalSystemSet);
@@ -707,7 +872,7 @@ export class DialogGPT {
 				
 				const localSystemBubble = document.createElement("div");
 				localSystemBubble.setAttribute("class", "chat-container-GPT-messages-local-system-bubble");
-				localSystemBubble.innerHTML = `<div>Local System</div><pre>${piece.content}</pre>`;
+				localSystemBubble.innerHTML = `<label>Local System</label><pre>${piece.content}</pre>`;
 		
 				localSystemSet.appendChild(localSystemBubble);
 				chatContainer.appendChild(localSystemSet);
