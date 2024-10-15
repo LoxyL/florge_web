@@ -314,10 +314,7 @@ export class DialogGPT {
 		});
 	}
 
-	async _append_system_prompt(content){
-		this.bot.appendSystemMessage(content);
-		await this._saveRecordContent();
-
+	_appendSystemPromptBubble(content) {
 		const chatContainer = document.getElementById("chat-container-GPT-messages");
 
 		const localSystemSet = document.createElement("div");
@@ -326,12 +323,25 @@ export class DialogGPT {
 		
 		const localSystemBubble = document.createElement("div");
 		localSystemBubble.setAttribute("class", "chat-container-GPT-messages-local-system-bubble");
-		localSystemBubble.innerHTML = `<label>Local System</label><pre>${content}</pre>`;
+		localSystemBubble.innerHTML = `<label>Local System</label>`;
+
+		const localSystemContent = document.createElement("pre");
+		localSystemContent.innerHTML = content;
+		localSystemBubble.appendChild(localSystemContent);
 
 		localSystemSet.appendChild(localSystemBubble);
 		chatContainer.appendChild(localSystemSet);
 		
 		chatContainer.scrollTop = chatContainer.scrollHeight;
+
+		return {localSystemBubble, localSystemContent};
+	}
+
+	async _appendSystemPrompt(content){
+		this._appendSystemPromptBubble(content);
+
+		this.bot.appendSystemMessage(content);
+		await this._saveRecordContent();
 	}
 
 	_send_message(inputValue) {
@@ -424,8 +434,9 @@ export class DialogGPT {
 
 	async _varifySearch(inputValue) {
 		const varifyPrompt = `Please analyze the user's question to determine if a search is needed:
-		1. If the question involves specific factual content, numbers, the latest data, or requires up-to-date information (e.g., event dates, statistical data, real-time reports, etc.), respond with "Y" (search needed).
-		2. If the question is general discussion, based on common knowledge, or can be answered directly with existing knowledge, respond with "N" (no search needed).`;
+		1. If the question involves specific factual content, numbers, the latest data, or requires up-to-date information (e.g., event dates, statistical data, real-time reports, etc.), respond with "Y" (search needed) and initiate a search.
+		2. If the question is general discussion, based on common knowledge, or can be answered directly with existing knowledge, respond with "N" (no search needed).
+		3. If the user explicitly requests to perform a search, always respond "Y" (search needed) and initiate a search, regardless of the initial analysis`;
 		let tmp = ''; let activateSearch = false;
 		for await (const piece of this.agent.interact(varifyPrompt, inputValue)) {
 			tmp += piece;
@@ -471,11 +482,110 @@ export class DialogGPT {
 		return JSON.parse(result).keywords;
 	}
 
+	async _filterSearchResult(inputValue, search_results) {
+		const filterPrompt = `For the user's question:
+			"${inputValue}"
+			a search was conducted on the internet, resulting in the following entries (presented in JSON format). Please filter these results to determine which ones are truly useful and return them to me as is:
+			1. **Relevance**: Prioritize selecting search results that are closely related to the keywords in the user's question. These results should directly answer the user's question or provide relevant information.
+			2. **Authority**: Consider the reliability and authority of the sources. Favor results from authoritative websites or reputable sources, such as well-known news organizations, academic journals, or official institutions.
+			3. **Timeliness**: If the user's question involves specific timing or the latest information, choose the most recent results. Outdated information may no longer be accurate for time-sensitive questions.
+			4. **Completeness of Information**: Select results that provide detailed, clear, and complete answers rather than vague statements.
+			*Remember*: DO NOT CHANGE THE ORIGINAL CONTENT!!!
+			### Input Example:
+			User question:  
+			“What are the impacts of global warming?”
+			Search results (JSON format):  
+			\`\`\`json
+			[
+				{
+					"title": "The Impact of Global Warming",
+					"link": "https://example.com/global-warming-impact",
+					"content": "Global warming leads to significant changes in ecosystems."
+				},
+				{
+					"title": "A History of Global Warming",
+					"link": "https://example.com/global-warming-history",
+					"content": "An overview of the history of global warming."
+				},
+				{
+					"title": "Scientists Warn of Rising Sea Levels",
+					"link": "https://example.com/sea-level-rise",
+					"content": "Scientists warn that rising sea levels will affect coastal cities."
+				},
+				{
+					"title": "Future Trends in Climate Change",
+					"link": "https://example.com/climate-change-trends",
+					"content": "This article discusses future trends in climate change."
+				},
+				{
+					"title": "Blog Post on Global Warming",
+					"link": "https://example.com/global-warming-blog",
+					"content": "A personal blog discussing global warming."
+				}
+			]
+			\`\`\`
+			### Expected Output:
+			After filtering, the returned results should include: (maintain JSON format)  
+			\`\`\`json
+			[
+				{
+					"title": "The Impact of Global Warming",
+					"link": "https://example.com/global-warming-impact",
+					"content": "Global warming leads to significant changes in ecosystems."
+				},
+				{
+					"title": "Scientists Warn of Rising Sea Levels",
+					"link": "https://example.com/sea-level-rise",
+					"content": "Scientists warn that rising sea levels will affect coastal cities."
+				},
+				{
+					"title": "Future Trends in Climate Change",
+					"link": "https://example.com/climate-change-trends",
+					"content": "This article discusses future trends in climate change."
+				}
+			]
+			\`\`\`
+			Please carefully review each search result to ensure that only those meeting the above criteria are returned and maintain the JSON format.`
+
+		let results = '';
+
+		const initPrompt = `Based on the user's question, the following search results have been obtained from the internet (presented in JSON format):\n${results}`
+
+		const {localSystemBubble, localSystemContent} = this._appendSystemPromptBubble(initPrompt);
+		localSystemBubble.classList.add('active');
+
+		const chatContainer = document.getElementById("chat-container-GPT-messages");
+		chatContainer.scrollTop = chatContainer.scrollHeight;
+
+		for await (const piece of this.agent.interact(filterPrompt, JSON.stringify(search_results))) {
+			results += piece;
+
+			localSystemContent.innerHTML = `Based on the user's question, the following search results have been obtained from the internet (presented in JSON format):\n${results}`
+
+			localSystemBubble.scrollTop = localSystemBubble.scrollHeight;
+		}
+
+		const localSystemPrompt = `Based on the user's question, the following search results have been obtained from the internet (presented in JSON format):\n${results}\n\nPlease respond to the user's question according to the following requirements, clearly citing the source of your response, and ensure that your answer is in the same language as the user's question:\n1. **Select Relevant Information**: Prioritize extracting the search results that are most relevant to the user's question in order to provide accurate and specific answers.\n2. **Citation Format**: Clearly cite the results you reference in your response. Use the following format:\n- “According to the content of [Title](Link), …”\n- Example: According to [The Impact of Global Warming](https://example.com/global-warming-impact), global warming leads to significant changes in ecosystems.\n3. **Clarity and Conciseness**: Ensure your answer is clear and concise, addressing the main point without unnecessary elaboration.\n4. **Diverse Information**: If there are multiple relevant results, you may combine information from various sources to enhance the comprehensiveness of your answer.\n5. **Accuracy**: Maintain the authenticity and accuracy of the information based on the presented results.\n6. **Language Consistency**: Respond to the user in the same language as their original question to ensure effective communication.\nPlease review the search results and generate a clear and authoritative answer.\n### Direct Response Only\nPlease return the results directly without any additional content or explanation.`
+		localSystemContent.innerHTML = localSystemPrompt;
+		await this.bot.appendSystemMessage(localSystemPrompt);
+
+		localSystemBubble.classList.remove('active');
+	}
+
+	async *_extractInfo(inputValue, content) {
+		const extractPrompt = `Based on the following question: ${inputValue}, extract relevant information and simplify it to no more than 300 words in language of question. Please ensure that key points are covered and the information is presented clearly and understandably.`;
+		
+		const contentIter = this.agent.interact(extractPrompt, content);
+		for await (const piece of contentIter) {
+			yield piece;
+		}
+	}
+
 	async _internetAccess(inputValue) {
 		const activateSearch = await this._varifySearch(inputValue);
 
 		if(activateSearch) {
-			const simplifyPrompt = `Simplify this passage to less than 100 words.`;
+			let search_results = [];
 	
 			const chatContainer = document.getElementById("chat-container-GPT-messages");
 	
@@ -527,18 +637,24 @@ export class DialogGPT {
 					searchBubble.scrollTop = searchBubble.scrollHeight;
 	
 					let content = '';
-					const contentIter = this.agent.interact(simplifyPrompt, item.content);
-					for await (const piece of contentIter) {
+					for await (const piece of this._extractInfo(inputValue, item.content)) {
 						content += piece;
 						itemContent.innerHTML = content;
 						searchBubble.scrollTop = searchBubble.scrollHeight;
 					}
-	
+					
+					search_results.push({
+						title: item.title,
+						link: item.link,
+						content: content
+					})
 				}
 			}
 	
 			searchBubble.classList.add('done');
 			searchTitle.innerHTML = "Done."
+
+			await this._filterSearchResult(inputValue, search_results);
 		}
 	}
 
@@ -564,13 +680,17 @@ export class DialogGPT {
 			while(true) {
 				const {value, done} = await reader.read();
 
-				if(value) {
-					const chunk = decoder.decode(value, {stream: true});
-					const lines = chunk.split('<splitMark>').filter(line => line);
+				try {					
+					if(value) {
+						const chunk = decoder.decode(value, {stream: true});
+						const lines = chunk.split('<splitMark>').filter(line => line);
 
-					for (const line of lines) {
-						yield JSON.parse(line);
+						for (const line of lines) {
+							yield JSON.parse(line);
+						}
 					}
+				} catch (err) {
+					console.error('Error:', err);
 				}
 
 				if(done) {
@@ -589,7 +709,7 @@ export class DialogGPT {
 		if(inputValue !== ""){
 			if(inputValue.startsWith("/system ")){
 				console.log("[INFO]Append system prompt: ", inputValue.slice(8));
-				this._append_system_prompt(inputValue.slice(8));
+				this._appendSystemPrompt(inputValue.slice(8));
 			} else {
 				window.isInteracting = true;
 				this._send_message(inputValue);

@@ -166,7 +166,7 @@ app.post('/gpt/search/wiki', async (req, res) => {
             return res.status(400).json({ error: 'Keyword is required' });
         }
 
-        console.log{`Searching on Wiki for "${keyword}"`};
+        console.log(`Searching on Wiki for "${keyword}"`);
 
         const search = new SearchWiki(proxyUrl, useProxy);
         

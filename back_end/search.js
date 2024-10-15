@@ -10,8 +10,9 @@ class SearchBase {
     }
 
     async *getInfo(keyWord) {
+        console.log('Getting info...');
         for await (const data of this._search(keyWord)) {
-            console.log('Get Result:');
+            console.log('Get Result of ' + data.title);
             console.log(data);
             yield data;
         }
@@ -72,31 +73,40 @@ class SearchWiki extends SearchBase {
     }
 
     async _extract(index) {
+        const maxLength = 80000;
+
         try {
             const response = await axios.get(this._url, {
                 params: {
                     action: 'query',
                     format: 'json',
-                    prop: 'extracts',
-                    exintro: true,
+                    prop: 'revisions',
+                    rvprop: 'content',
                     explaintext: true,
                     pageids: index,
                 },
                 httpAgent: this._useProxy? this._agent:null,
                 httpsAgent: this._useProxy? this._agent:null
             });
+
+            let result = '';
     
-            const page = response.data.query.pages[index];
-    
-            if (page && page.extract) {
-                // console.log(`Extract for ${page.title}:`);
-                // console.log(page.extract);
-                // console.log('---');
-            } else {
-                console.log(`No content in page ${index}`);
+            const pages = response.data.query.pages;
+            for (const pageId in pages) {
+                const page = pages[pageId];
+                if (page.revisions && page.revisions.length > 0) {
+                    const content = page.revisions[0]['*'];
+                    // console.log(content);
+                    result += content;
+                } else {
+                    console.log(`No content in page ${pageId}`);
+                }
             }
 
-            return page.extract;
+            if(result.length > maxLength) {
+                result = result.slice(0, maxLength);
+            }
+            return JSON.stringify(result);
         } catch (error) {
             console.error('Error getting content:', error.response ? error.response.data : error.message);
         }
@@ -105,5 +115,10 @@ class SearchWiki extends SearchBase {
 
 module.exports = {SearchWiki};
 
-engine = new SearchWiki('http://127.0.0.1:7890', true);
-engine.getInfo('VCR in physics');
+
+// engine = new SearchWiki('http://127.0.0.1:7890', true);
+// (async () => {
+//     for await (const piece of engine.getInfo('VCR in physics')){
+//         // console.log(piece);
+//     }
+// })();

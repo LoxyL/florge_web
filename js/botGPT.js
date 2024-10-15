@@ -162,7 +162,7 @@ export class BotGPT {
 export class AgentGPT {
     constructor() {
         this.model = 'gpt-4o-mini';
-        this.maxTokens = 200;
+        this.maxTokens = 4000;
         this._refresh();
         console.log("[INFO][AGENT]Done creating new agent.");
     }

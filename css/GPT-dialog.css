@@ -20,6 +20,7 @@
     border-radius: 10px;
     transition: 0.3s;
     overflow-y: auto;
+    scroll-behavior: smooth;
 }
 
 .chat-container-GPT-messages-global-system-bubble {
@@ -54,7 +55,7 @@
     display: block;
     white-space: pre-wrap;
     /* text-align: center; */
-    width: 580px;
+    width: 95%;
     margin: 10px;
     font-family: 'Times New Roman';
     font-size: 15px;
@@ -85,6 +86,21 @@
 
 .chat-container-GPT-messages-global-system-bubble:hover pre,
 .chat-container-GPT-messages-local-system-bubble:hover pre {
+    opacity: 1;
+}
+
+.chat-container-GPT-messages-local-system-bubble.active {
+    border: 0px;
+    width: 90%;
+    height: 400px;
+    background-color: #0c0c0c;
+}
+
+.chat-container-GPT-messages-local-system-bubble.active label {
+    opacity: 0;
+}
+
+.chat-container-GPT-messages-local-system-bubble.active pre {
     opacity: 1;
 }
 
