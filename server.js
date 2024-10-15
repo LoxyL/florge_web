@@ -62,11 +62,17 @@ app.post('/gpt/record', (req, res) => {
             if(err.code === 'ENOENT'){
                 console.log("No path ./data/gpt");
             }
-            fs.mkdir('data/gpt', (err) => {
-                console.log("Creating directory ./data/gpt");
+            fs.mkdir('data', (err) => {
+                console.log("Creating directory ./data");
                 if(err){
-                    console.log("Error creating directory ./data/gpt");
+                    console.log("Error creating directory ./data");
                 }
+                fs.mkdir('data/gpt', (err) => {
+                    console.log("Creating directory ./data/gpt");
+                    if(err){
+                        console.log("Error creating directory ./data/gpt");
+                    }
+                });
             });
         }
     })
