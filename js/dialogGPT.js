@@ -365,10 +365,12 @@ export class DialogGPT {
 
 		this._userBubbleInteract(userBubble);
 		chatContainer.scrollTop = chatContainer.scrollHeight;
+
+		this.bot.appendUserMessage(inputValue);
 	}
 
 	async _receive_message(inputValue) {
-		let contentIter = this.bot.interact(inputValue);
+		let contentIter = this.bot.answer();
 		let receive_content = "";
 		
 		const chatContainer = document.getElementById("chat-container-GPT-messages");
@@ -565,7 +567,7 @@ export class DialogGPT {
 			localSystemBubble.scrollTop = localSystemBubble.scrollHeight;
 		}
 
-		const localSystemPrompt = `Based on the user's question, the following search results have been obtained from the internet (presented in JSON format):\n${results}\n\nPlease respond to the user's question according to the following requirements, clearly citing the source of your response, and ensure that your answer is in the same language as the user's question:\n1. **Select Relevant Information**: Prioritize extracting the search results that are most relevant to the user's question in order to provide accurate and specific answers.\n2. **Citation Format**: Clearly cite the results you reference in your response. Use the following format:\n- “According to the content of [Title](Link), …”\n- Example: According to [The Impact of Global Warming](https://example.com/global-warming-impact), global warming leads to significant changes in ecosystems.\n3. **Clarity and Conciseness**: Ensure your answer is clear and concise, addressing the main point without unnecessary elaboration.\n4. **Diverse Information**: If there are multiple relevant results, you may combine information from various sources to enhance the comprehensiveness of your answer.\n5. **Accuracy**: Maintain the authenticity and accuracy of the information based on the presented results.\n6. **Language Consistency**: Respond to the user in the same language as their original question to ensure effective communication.\nPlease review the search results and generate a clear and authoritative answer.\n### Direct Response Only\nPlease return the results directly without any additional content or explanation.`
+		const localSystemPrompt = `Based on the user's question, the following search results have been obtained from the internet (presented in JSON format):\n${results}\n\nPlease respond to the user's question according to the following requirements, clearly citing the source of your response, and ensure that your answer is in the same language as the user's question:\n1. **Select Relevant Information**: Prioritize extracting the search results that are most relevant to the user's question in order to provide accurate and specific answers.\n2. **Citation Format**: Clearly cite the results you reference in your response. Use the following format:\n- “According to the content of [Title](Link), …”\n- Example: According to [The Impact of Global Warming](https://example.com/global-warming-impact), global warming leads to significant changes in ecosystems.\n3. **Clarity and Conciseness**: Ensure your answer is clear and concise, addressing the main point without unnecessary elaboration.\n4. **Diverse Information**: If there are multiple relevant results, you may combine information from various sources to enhance the comprehensiveness of your answer.\n5. **Accuracy**: Maintain the authenticity and accuracy of the information based on the presented results.\n6. **Language Consistency**: Respond to the user in the same language as their original question to ensure effective communication.\nPlease review the search results and generate a clear and authoritative answer.\nAlways remember to refer with link.`
 		localSystemContent.innerHTML = localSystemPrompt;
 		await this.bot.appendSystemMessage(localSystemPrompt);
 

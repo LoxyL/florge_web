@@ -73,7 +73,7 @@ class SearchWiki extends SearchBase {
     }
 
     async _extract(index) {
-        const maxLength = 80000;
+        const maxLength = 50000;
 
         try {
             const response = await axios.get(this._url, {

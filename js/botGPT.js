@@ -79,21 +79,20 @@ export class BotGPT {
         this.body.messages.push(localSystemMessage);
     }
 
-    async *interact(contentSend) {
+    appendUserMessage(content) {
+		const userMessage = {
+			role: 'user',
+			content: content
+		}
+
+        this.body.messages.push(userMessage);
+    }
+
+    async *answer() {
         this.streamControl = new AbortController();
         let signal = this.streamControl.signal;
 
-        console.log("[INFO]Starting interaction.");
         this._refresh();
-        if(contentSend){
-            const messageSend = {
-                role: 'user',
-                content: contentSend
-            }
-            this.body.messages.push(messageSend);
-        }
-        console.log("[INFO]Current context: ", this.body);
-
         let response_content = "";
         try {
             const response = await fetch(this.src, {
@@ -147,15 +146,26 @@ export class BotGPT {
             } else {
                 console.error(`[INFO]Error interacting with ${this.model}:`, error);
             }
-            
         }
-        
+
         const messageReceive = {
             role: 'assistant',
             content: response_content
         }
 
         this.body.messages.push(messageReceive);
+    }
+
+    async *interact(contentSend) {
+        console.log("[INFO]Starting interaction.");
+        if(contentSend){
+            this.appendUserMessage(contentSend);
+        }
+        console.log("[INFO]Current context: ", this.body);
+
+        for await (const piece of this.answer()) {
+            yield piece;
+        }
     }
 }
 
