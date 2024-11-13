@@ -40,6 +40,7 @@
 					<option value="chatgpt-4o-latest">GPT-4o</option>
 					<option value="gpt-4-turbo">GPT-4</option>
 					<option value="gpt-3.5-turbo">GPT-3.5</option>
+					<option value="claude-3-5-sonnet-20240620">Claude 3.5 Sonnet</option>
 				</select>
 			</div>
 			<div class="sidebar-GPT-max-tokens-setting">
@@ -70,9 +71,15 @@
 				</div> -->
 			</div>
 			<div class="chat-container-GPT-input">
-				<textarea name="message-send-GPT" id="message-send-GPT" rows="1" cols="30"></textarea>
-				<button onclick="send()" id="send-button">&#9650;</button>
-				<button onclick="streamStop()" id="stop-button">&#9632;</button>
+				<div class="chat-container-GPT-input-text">
+					<textarea name="message-send-GPT" id="message-send-GPT" rows="1" cols="30"></textarea>
+					<button onclick="send()" id="send-button">&#9650;</button>
+					<button onclick="streamStop()" id="stop-button">&#9632;</button>
+				</div>
+				<div class="chat-container-GPT-input-image">
+					<div class="image-send-GPT" id="image-send-GPT"></div>
+					<input type="file" accept="image/*" multiple id="image-load-button"></button>
+				</div>
 			</div>
 		</div>
 	

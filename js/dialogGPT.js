@@ -10,9 +10,35 @@ export class DialogGPT {
 		this.current_record_id = 0;
 		this.useAgent = true;
 		this.ctrlPressed = false;
+		this.image_buffer = [];
 		this._switchInteract();
 		this._windowInteract();
+		this._imageLoadInteract();
 		this._loadRecordList();
+	}
+
+	_imageLoadInteract() {
+		document.getElementById("image-load-button").addEventListener('change', (event) => {
+			const files = event.target.files;
+			const imageContainer = document.getElementById('image-send-GPT');
+			imageContainer.innerHTML = '';
+			this.image_buffer = [];
+
+			for (const file of files) {
+				const reader = new FileReader();
+				reader.onload = (eve) => {
+					const img = document.createElement('img');
+					img.src = eve.target.result;
+					img.style.width = '100px';
+					img.style.marginRight = '10px';
+					imageContainer.appendChild(img);
+					this.image_buffer.push(eve.target.result)
+					console.log(JSON.stringify(this.image_buffer));
+					
+				}
+				reader.readAsDataURL(file);
+			}
+		})
 	}
 
 	_windowInteract() {
@@ -53,9 +79,12 @@ export class DialogGPT {
 	}
 
 	_getInputGPT() {
-		let inputElement = document.getElementById("message-send-GPT");
-		let inputValue = inputElement.value;
+		const inputElement = document.getElementById("message-send-GPT");
+		const inputValue = inputElement.value;
 		inputElement.value = "";
+
+		const imageContainer = document.getElementById("image-send-GPT");
+		imageContainer.innerHTML = '';
 		
 		inputElement.style.height = 'auto';
 		inputElement.style.height = (this.scrollHeight) + 'px';
@@ -366,10 +395,23 @@ export class DialogGPT {
 		this._userBubbleInteract(userBubble);
 		chatContainer.scrollTop = chatContainer.scrollHeight;
 
-		this.bot.appendUserMessage(inputValue);
+		if(this.image_buffer.length) {
+			const buffer = JSON.parse(JSON.stringify(this.image_buffer))
+			this.image_buffer = [];
+			for(const img of buffer) {
+				const imgEle = document.createElement('img');
+				imgEle.src = img;
+				const pre = document.createElement("pre");
+				pre.appendChild(imgEle);
+				userBubble.appendChild(pre);
+			}
+			this.bot.appendUserMessageWithImg(inputValue, buffer);
+		} else {
+			this.bot.appendUserMessage(inputValue);
+		}
 	}
 
-	async _receive_message(inputValue) {
+	async _receive_message() {
 		let contentIter = this.bot.answer();
 		let receive_content = "";
 		
@@ -708,7 +750,7 @@ export class DialogGPT {
 		const useChatSearch = document.getElementById('config-use-chat-search-GPT').checked;
 
 		let inputValue = this._getInputGPT();
-		if(inputValue !== ""){
+		if((inputValue !== "") || this.image_buffer){
 			if(inputValue.startsWith("/system ")){
 				console.log("[INFO]Append system prompt: ", inputValue.slice(8));
 				this._appendSystemPrompt(inputValue.slice(8));
@@ -721,7 +763,7 @@ export class DialogGPT {
 				}
 				this._switchToStopButton();
 				console.log("[INFO]Send content: ", inputValue);
-				await this._receive_message(inputValue);
+				await this._receive_message();
 				this.dialog_num += 1;
 				await this._saveRecordContent();
 				await this._nameRecord();
@@ -949,7 +991,21 @@ export class DialogGPT {
 		
 				const userBubble = document.createElement("div");
 				userBubble.setAttribute("class", "chat-container-GPT-messages-user-bubble");
-				userBubble.innerHTML = `<pre>${this._processRawDisplay(piece.content)}</pre>`;
+				if(Array.isArray(piece.content)){
+					for (const ele of piece.content) {
+						if (ele.type == 'text') {
+							userBubble.innerHTML += `<pre>${this._processRawDisplay(ele.text)}</pre>`;
+						} else if (ele.type == "image_url") {
+							const img = document.createElement("img");
+							img.src = ele.image_url.url;
+							const pre = document.createElement("pre");
+							pre.appendChild(img);
+							userBubble.appendChild(pre);
+						}
+					}
+				} else {
+					userBubble.innerHTML = `<pre>${this._processRawDisplay(piece.content)}</pre>`;
+				}
 		
 				userSet.appendChild(userIcon);
 				userSet.appendChild(userBubble);
@@ -1024,7 +1080,7 @@ export class DialogGPT {
 			if(recordTitle.innerHTML !== "New Chat") return;
 
 			let title = '';
-			const contentIter = this.agent.interact(systemPrompt, JSON.stringify(recordContents));
+			const contentIter = this.agent.interact(systemPrompt, JSON.stringify(recordContents[1]));
 			
 			for await (const piece of contentIter) {
 				if (piece == undefined) continue;

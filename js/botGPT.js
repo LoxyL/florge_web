@@ -88,6 +88,29 @@ export class BotGPT {
         this.body.messages.push(userMessage);
     }
 
+    appendUserMessageWithImg(text, imgs) {
+        let content = [
+            {
+                "type": "text",
+                "text": text
+            }
+        ]
+
+        for (const img of imgs) {
+            content.push({
+                "type": "image_url",
+                "image_url": {
+                    "url": img
+                }
+            })
+        }
+
+        this.body.messages.push({
+            role: 'user',
+            content: content
+        })
+    }
+
     async *answer() {
         this.streamControl = new AbortController();
         let signal = this.streamControl.signal;
@@ -160,6 +183,18 @@ export class BotGPT {
         console.log("[INFO]Starting interaction.");
         if(contentSend){
             this.appendUserMessage(contentSend);
+        }
+        console.log("[INFO]Current context: ", this.body);
+
+        for await (const piece of this.answer()) {
+            yield piece;
+        }
+    }
+
+    async *interactWithImg(text, imgs) {
+        console.log("[INFO]Starting interaction.");
+        if(text || imgs){
+            this.appendUserMessageWithImg(text, imgs);
         }
         console.log("[INFO]Current context: ", this.body);
 

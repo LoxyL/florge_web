@@ -179,6 +179,15 @@ body {
 }
 
 .chat-container-GPT-input {
+  padding: 0px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.chat-container-GPT-input-text {
   padding: 10px;
   display: flex;
   flex-direction: row;
@@ -187,7 +196,33 @@ body {
   box-sizing: border-box;
 }
 
-.chat-container-GPT-input textarea {
+.chat-container-GPT-input-image {
+  /* padding: 12px; */
+  justify-content: center;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+  background-color: #0f0f0f;
+  min-height: 40px;
+  border-radius: 20px;
+}
+
+.chat-container-GPT-input-image div {
+  flex: 1;
+  margin: 10px;
+  background-color: #000000;
+  border-radius: 10px;
+  box-sizing: border-box;
+}
+
+.chat-container-GPT-input-image img {
+  margin: 10px;
+  border-radius: 10px;
+}
+
+.chat-container-GPT-input-text textarea {
   flex: 1;
   padding: 7px 20px;
   border: none;
@@ -207,28 +242,28 @@ body {
   transition: all 0.2s ease;
 }
 
-.chat-container-GPT-input textarea::-webkit-scrollbar {
+.chat-container-GPT-input-text textarea::-webkit-scrollbar {
   display: none;
   width: 2px;
   height: 6px;
 }
 
-.chat-container-GPT-input textarea::-webkit-scrollbar-track {
+.chat-container-GPT-input-text textarea::-webkit-scrollbar-track {
   background: #333333;
   border-radius: 1px;
   padding-right: 200px;
 }
 
-.chat-container-GPT-input textarea::-webkit-scrollbar-thumb {
+.chat-container-GPT-input-text textarea::-webkit-scrollbar-thumb {
   background: #222222;
   border-radius: 1px;
 }
-.chat-container-GPT-input textarea::-webkit-scrollbar-thumb:hover {
+.chat-container-GPT-input-text textarea::-webkit-scrollbar-thumb:hover {
   background: #111111;
 }
 
-.chat-container-GPT-input textarea:hover,
-.chat-container-GPT-input textarea:focus {
+.chat-container-GPT-input-text textarea:hover,
+.chat-container-GPT-input-text textarea:focus {
   border: 2px, solid, #0b6b4b;
 }
 
@@ -245,6 +280,32 @@ body {
   font-size: 15px;
   transition: background-color 0.2s ease;
   cursor: pointer;
+}
+
+#image-load-button {
+  background-color: white;
+  margin-right: 13px;
+  height: 14px;
+  width: 14px;
+  border-radius: 100%;
+  border: 7px white solid;
+  box-sizing: border-box;
+  transition: 0.2s;
+  cursor: pointer;
+  position: relative;
+}
+
+#image-load-button:hover {
+  margin-right: 10px;
+  height: 20px;
+  width: 20px;
+  border: 10px white solid;
+}
+
+#image-load-button:hover {
+  margin-right: 10px;
+  height: 20px;
+  width: 20px;
 }
 
 #send-button:hover {
