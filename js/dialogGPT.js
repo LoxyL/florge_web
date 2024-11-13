@@ -29,16 +29,33 @@ export class DialogGPT {
 				reader.onload = (eve) => {
 					const img = document.createElement('img');
 					img.src = eve.target.result;
-					img.style.width = '100px';
+					img.style.width = '200px';
 					img.style.marginRight = '10px';
 					imageContainer.appendChild(img);
 					this.image_buffer.push(eve.target.result)
-					console.log(JSON.stringify(this.image_buffer));
-					
 				}
 				reader.readAsDataURL(file);
 			}
 		})
+
+		document.getElementById("message-send-GPT").addEventListener('paste', (event) => {
+			const imageContainer = document.getElementById('image-send-GPT');
+			const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+			for (const item of items) {
+				if (item.type.indexOf("image/") !== -1) {
+					const blob = item.getAsFile();
+					const reader = new FileReader();
+					reader.onload = (eve) => {
+						const img = document.createElement("img");
+						img.src = eve.target.result;
+						img.style.width = "200px";
+						imageContainer.appendChild(img);
+						this.image_buffer.push(eve.target.result);
+					}
+					reader.readAsDataURL(blob);
+				}
+			}
+        })
 	}
 
 	_windowInteract() {
