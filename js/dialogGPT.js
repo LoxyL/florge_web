@@ -472,7 +472,7 @@ export class DialogGPT {
 
 		const rawContainer = document.createElement('pre');
 		rawContainer.setAttribute("id", "raw-message");
-		rawContainer.innerHTML = this._processRawDisplay(receive_content);
+		rawContainer.innerHTML = receive_content;
 		botBubble.appendChild(rawContainer);
 		
 		this._botBubbleInteract(botBubble);
