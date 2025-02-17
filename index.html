@@ -36,6 +36,8 @@
 				<label for="model-GPT">Model</label>
 				<br>
 				<select name="model-GPT" id="model-GPT" class="sidebar-GPT-select">
+					<option value="deepseek-ai/DeepSeek-V3">Deepseek V3</option>
+					<option value="deepseek-ai/DeepSeek-R1">Deepseek R1</option>
 					<option value="gpt-4o-mini">GPT-4o-mini</option>
 					<option value="chatgpt-4o-latest">GPT-4o</option>
 					<option value="gpt-4-turbo">GPT-4</option>
@@ -51,7 +53,7 @@
 			<div class="sidebar-GPT-max-tokens-setting">
 				<label for="max-tokens">Max Tokens</label>
 				<br>
-				<input type="number" name="max-tokens" id="max-tokens" value="2000" class="sidebar-GPT-input">
+				<input type="number" name="max-tokens" id="max-tokens" value="4000" class="sidebar-GPT-input">
 			</div>
 			<div class="sidebar-GPT-max-contexts-setting">
 				<label for="max-contexts">Max Contexts</label>
@@ -115,6 +117,12 @@
 						<input name="config-source-GPT" type="text" id="config-source-GPT">
 						<label for="config-apikey-GPT">API key</label>
 						<input name="config-apikey-GPT" type="password" id="config-apikey-GPT">
+					</div>
+					<div class="config-tab-content-part">
+						<label for="config-source-deepseek">Deepseek Source</label>
+						<input name="config-source-deepseek" type="text" id="config-source-deepseek">
+						<label for="config-apikey-deepseek">API key</label>
+						<input name="config-apikey-deepseek" type="password" id="config-apikey-deepseek">
 					</div>
 					<div class="config-tab-content-part">
 						<label for="config-cx-google-search">Google Search Engine</label>
@@ -189,8 +197,8 @@
 		</ul>
 	</div> -->
 	
+	<script src="js/configEvent.js"></script>
 	<script src="js/GPT-input_event.js"></script>
 	<script type="module" src="js/GPT-main.js"></script>
-	<script src="js/configEvent.js"></script>
 </body>
 </html>

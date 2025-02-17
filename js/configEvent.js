@@ -16,6 +16,8 @@ function configContainerInit(){
 async function configSave() {
     const urlGPT = document.getElementById('config-source-GPT').value;
     const apikeyGPT = document.getElementById('config-apikey-GPT').value;
+    const urlDeepseek = document.getElementById('config-source-deepseek').value;
+    const apikeyDeepseek = document.getElementById('config-apikey-deepseek').value;
     const cxGoogleSearch = document.getElementById('config-cx-google-search').value;
     const apikeyGoogleSearch = document.getElementById('config-apikey-google-search').value;
     const systemPromptGPT = document.getElementById('config-system-prompt-GPT').value;
@@ -32,6 +34,8 @@ async function configSave() {
     const config = {
         urlGPT: urlGPT,
         apikeyGPT: apikeyGPT,
+        urlDeepseek: urlDeepseek,
+        apikeyDeepseek: apikeyDeepseek,
         cxGoogleSearch: cxGoogleSearch,
         apikeyGoogleSearch: apikeyGoogleSearch,
         systemPromptGPT: systemPromptGPT,
@@ -66,13 +70,14 @@ async function configLoad() {
 
         document.getElementById('config-source-GPT').value = config.urlGPT;
         document.getElementById('config-apikey-GPT').value = config.apikeyGPT;
+        document.getElementById('config-source-deepseek').value = config.urlDeepseek;
+        document.getElementById('config-apikey-deepseek').value = config.apikeyDeepseek;
         document.getElementById('config-cx-google-search').value = config.cxGoogleSearch;
         document.getElementById('config-apikey-google-search').value = config.apikeyGoogleSearch;
         document.getElementById('config-system-prompt-GPT').value = config.systemPromptGPT;
         document.getElementById('config-use-global-system-prompt').checked = config.useGlobalSystemPrompt;
         document.getElementById('config-use-proxy').checked = config.useProxy;
         document.getElementById('config-proxy-url').value = config.proxyUrl;
-
         
         document.getElementById('config-use-chat-search-GPT').checked = config.useChatSearchGPT;
         document.getElementById('config-use-chat-search-GPT-wiki').checked = config.useChatSearchWiki;

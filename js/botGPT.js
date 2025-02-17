@@ -22,10 +22,18 @@ export class BotGPT {
         console.log("[INFO]Done creating new bot.");
     }
 
+    setConfig(config) {
+        this.src = config.url;
+        this.apiKey = config.apiKey;
+        this.body.model = config.model;
+        this._headers = {
+            'Authorization': `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json'
+        };
+        console.log("[INFO]Config updated:\n[INFO]\tmodel: ", this.body.model);
+    }
+
     _getParams() {
-        this.src = document.getElementById('config-source-GPT').value;
-        this.apiKey = document.getElementById('config-apikey-GPT').value;
-        this.model = document.getElementById("model-GPT").value;
         if(this.useSystemPrompt) {
             this.systemPrompt = document.getElementById("config-system-prompt-GPT").value;
         } else {
@@ -36,14 +44,15 @@ export class BotGPT {
 
     _refresh() {
         this._getParams();
-        this._headers =  {
-            'Authorization': `Bearer ${this.apiKey}`,
-            'Content-Type': 'application/json'
-        };
-        this.body.model = this.model;
+        if(!this._headers) {
+            this._headers = {
+                'Authorization': `Bearer ${this.apiKey}`,
+                'Content-Type': 'application/json'
+            };
+        }
         this.body.max_tokens = this.maxTokens;
         this.body.messages[0].content = this.systemPrompt;
-        console.log("[INFO]Current params:\n[INFO]\tmodel: ", this.model, "\n[INFO]\tmax_tokens: ", this.maxTokens);
+        console.log("[INFO]Current params:\n[INFO]\tmodel: ", this.body.model, "\n[INFO]\tmax_tokens: ", this.maxTokens);
     }
 
     deleteMessage(id) {
