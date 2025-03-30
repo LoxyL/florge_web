@@ -54,7 +54,6 @@ app.get('/config', (req, res) => {
 })
 
 app.post('/gpt/record', (req, res) => {
-    const data = req.body;
     const filePath = path.join(__dirname, 'data', 'gpt', 'record_list.json');
 
     fs.stat('data/gpt', (err, stat) => {
@@ -62,44 +61,92 @@ app.post('/gpt/record', (req, res) => {
             if(err.code === 'ENOENT'){
                 console.log("No path ./data/gpt");
             }
-            fs.mkdir('data', (err) => {
-                console.log("Creating directory ./data");
+            fs.mkdir('data', { recursive: true }, (err) => {
                 if(err){
                     console.log("Error creating directory ./data");
+                    return res.status(500).send('Error creating directories');
                 }
                 fs.mkdir('data/gpt', (err) => {
-                    console.log("Creating directory ./data/gpt");
                     if(err){
                         console.log("Error creating directory ./data/gpt");
+                        return res.status(500).send('Error creating directories');
                     }
+                    handleStreamWrite();
                 });
             });
+        } else {
+            handleStreamWrite();
         }
-    })
-
-    fs.writeFile(filePath, JSON.stringify(data), (err) => {
-        if (err) {
-            console.log('Error saving Records');
-            return res.status(500).send('Error saving Records');
-        }
-        res.send('Done saving Records');
-        console.log(`Save record_list[${computeStringSizeMB(JSON.stringify(data))/1024/1024}MB]`);
     });
+
+    function handleStreamWrite() {
+        const writeStream = fs.createWriteStream(filePath);
+        let dataSize = 0;
+        
+        writeStream.on('error', (err) => {
+            console.log('Error saving Records:', err);
+            return res.status(500).send('Error saving Records');
+        });
+        
+        writeStream.on('finish', () => {
+            res.send('Done saving Records');
+            console.log(`Save record_list[${dataSize/1024/1024}MB]`);
+        });
+        
+        if (req.body) {
+            const data = JSON.stringify(req.body);
+            dataSize = new Blob([data]).size;
+            writeStream.write(data);
+            writeStream.end();
+        } else {
+            let chunks = [];
+            req.on('data', (chunk) => {
+                chunks.push(chunk);
+                writeStream.write(chunk);
+            });
+            
+            req.on('end', () => {
+                dataSize = chunks.reduce((total, chunk) => total + chunk.length, 0);
+                writeStream.end();
+            });
+        }
+    }
 })
 
 app.post('/gpt/record/:id', (req, res) => {
     const id = req.params.id;
-    const data = req.body;
     const filePath = path.join(__dirname, 'data', 'gpt', `record_${id}.json`);
-
-    fs.writeFile(filePath, JSON.stringify(data), (err) => {
-        if (err) {
-            console.log(`Error saving Record ${id}`);
-            return res.status(500).send(`Error saving Record ${id}`);
-        }
-        res.send('Done saving Records');
-        console.log(`Save record_${id}[${computeStringSizeMB(JSON.stringify(data))/1024/1024}MB]`);
+    
+    const writeStream = fs.createWriteStream(filePath);
+    let dataSize = 0;
+    
+    writeStream.on('error', (err) => {
+        console.log(`Error saving Record ${id}:`, err);
+        return res.status(500).send(`Error saving Record ${id}`);
     });
+    
+    writeStream.on('finish', () => {
+        res.send('Done saving Records');
+        console.log(`Save record_${id}[${dataSize/1024/1024}MB]`);
+    });
+    
+    if (req.body) {
+        const data = JSON.stringify(req.body);
+        dataSize = new Blob([data]).size;
+        writeStream.write(data);
+        writeStream.end();
+    } else {
+        let chunks = [];
+        req.on('data', (chunk) => {
+            chunks.push(chunk);
+            writeStream.write(chunk);
+        });
+        
+        req.on('end', () => {
+            dataSize = chunks.reduce((total, chunk) => total + chunk.length, 0);
+            writeStream.end();
+        });
+    }
 })
 
 app.get('/gpt/record', (req, res) => {
@@ -110,13 +157,28 @@ app.get('/gpt/record', (req, res) => {
         return res.json(undefined);
     }
 
-    fs.readFile(filePath, 'utf8', (err, data) => {
-        if (err) {
+    res.setHeader('Content-Type', 'application/json');
+    
+    const readStream = fs.createReadStream(filePath);
+    
+    readStream.on('error', (err) => {
+        console.log('Error reading Records:', err);
+        if (!res.headersSent) {
             return res.status(500).send('Error reading Records');
         }
-        res.json(JSON.parse(data));
-        console.log(`Load record_list[${computeStringSizeMB(JSON.stringify(data))/1024/1024}MB]`);
+        res.end();
     });
+    
+    let dataSize = 0;
+    readStream.on('data', (chunk) => {
+        dataSize += chunk.length;
+    });
+    
+    readStream.on('end', () => {
+        console.log(`Load record_list[${dataSize/1024/1024}MB]`);
+    });
+    
+    readStream.pipe(res);
 })
 
 app.get('/gpt/record/:id', (req, res) => {
@@ -128,13 +190,28 @@ app.get('/gpt/record/:id', (req, res) => {
         return res.json(undefined);
     }
 
-    fs.readFile(filePath, 'utf8', (err, data) => {
-        if (err) {
+    res.setHeader('Content-Type', 'application/json');
+    
+    const readStream = fs.createReadStream(filePath);
+    
+    readStream.on('error', (err) => {
+        console.log(`Error reading "record_${id}.json":`, err);
+        if (!res.headersSent) {
             return res.status(500).send(`Error reading "record_${id}.json"`);
         }
-        res.json(JSON.parse(data));
-        console.log(`Load record_${id}[${computeStringSizeMB(JSON.stringify(data))/1024/1024}MB]`);
+        res.end();
     });
+    
+    let dataSize = 0;
+    readStream.on('data', (chunk) => {
+        dataSize += chunk.length;
+    });
+    
+    readStream.on('end', () => {
+        console.log(`Load record_${id}[${dataSize/1024/1024}MB]`);
+    });
+    
+    readStream.pipe(res);
 })
 
 app.get('/gpt/record_remove/:id', (req, res) => {

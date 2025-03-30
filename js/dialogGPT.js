@@ -882,33 +882,83 @@ export class DialogGPT {
 	async _getRecordList() {
 		try {
 			const response = await fetch(`/gpt/record`);
-			const data = await response.json();
-			return data;
+			if (!response.ok) {
+				console.log('[INFO]Error reading record list:', response.statusText);
+				return undefined;
+			}
+			
+			// 使用流式读取
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder('utf-8');
+			let buffer = '';
+			
+			while (true) {
+				const {done, value} = await reader.read();
+				
+				if (done) {
+					try {
+						return JSON.parse(buffer);
+					} catch (e) {
+						console.error('解析记录列表时出错:', e);
+						return undefined;
+					}
+				}
+				
+				buffer += decoder.decode(value, {stream: true});
+			}
 		} catch (error) {
-			console.log('[INFO]Error reading record:', error);
+			console.log('[INFO]Error reading record list:', error);
 			return undefined;
 		}
 	}
 
 	async _saveRecordList(data) {
 		try {
-			fetch(`/gpt/record`, {
+			const response = await fetch(`/gpt/record`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json'
 				},
 				body: JSON.stringify(data)
 			});
+			
+			if (!response.ok) {
+				console.error('保存记录列表时发生错误:', response.statusText);
+			}
 		} catch (error) {
-			console.error('Error:', error);
+			console.error('保存记录列表时发生错误:', error);
 		}
 	}
 
 	async _getRecordData() {
 		try {
 			const response = await fetch(`/gpt/record/${this.current_record_id}`);
-			const data = await response.json();
-			return data;
+			if (!response.ok) {
+				console.log('[INFO]Error reading record:', response.statusText);
+				return undefined;
+			}
+			
+			// 使用流式读取
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder('utf-8');
+			let buffer = '';
+			
+			while (true) {
+				const {done, value} = await reader.read();
+				
+				if (done) {
+					// 处理缓冲区中的最后数据
+					try {
+						return JSON.parse(buffer);
+					} catch (e) {
+						console.error('解析记录数据时出错:', e);
+						return undefined;
+					}
+				}
+				
+				// 解码并添加到缓冲区
+				buffer += decoder.decode(value, {stream: true});
+			}
 		} catch (error) {
 			console.log('[INFO]Error reading record:', error);
 			return undefined;
@@ -917,15 +967,19 @@ export class DialogGPT {
 
 	async _saveRecordData(data) {
 		try {
-			fetch(`/gpt/record/${this.current_record_id}`, {
+			const response = await fetch(`/gpt/record/${this.current_record_id}`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json'
 				},
 				body: JSON.stringify(data)
 			});
+			
+			if (!response.ok) {
+				console.error('保存记录数据时发生错误:', response.statusText);
+			}
 		} catch (error) {
-			console.error('Error:', error);
+			console.error('保存记录数据时发生错误:', error);
 		}
 	}
 
