@@ -49,7 +49,7 @@ async function configSave() {
     }
 
     try {
-        const response = await fetch('http://localhost:30962/config', {
+        const response = await fetch('/config', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -65,7 +65,7 @@ async function configSave() {
 
 async function configLoad() {
     try {
-        const response = await fetch('http://localhost:30962/config');
+        const response = await fetch('/config');
         const config = await response.json();
 
         document.getElementById('config-source-GPT').value = config.urlGPT;

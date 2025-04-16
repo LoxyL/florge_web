@@ -31,6 +31,7 @@ export class BotGPT {
             'Content-Type': 'application/json'
         };
         console.log("[INFO]Config updated:\n[INFO]\tmodel: ", this.body.model);
+        console.log("[INFO]Config updated:\n[INFO]\tsrc: ", this.src);
     }
 
     _getParams() {

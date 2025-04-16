@@ -207,7 +207,7 @@
 .chat-container-GPT-messages-user-icon {
     display: grid;
     color: white;
-    background-color: #0b6b4b;
+    background: radial-gradient(circle, #0b6b4b 0%, #074732 100%);
     margin-right: 5%;
     width: 60px;
     height: 60px;
@@ -216,12 +216,15 @@
     border-radius: 30px;
     font-family: 'Broadway';
     font-size: 20px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
 }
 
 .chat-container-GPT-messages-user-bubble {
     margin-right: 20px;
     background-color: #2d3d37;
-    border: #2d3d37 3px solid;
+    border-radius: 15px 15px 2px 15px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+    border: 2px solid transparent;
     box-sizing: border-box;
     padding: 0px 20px;
     min-height: 60px;
@@ -243,7 +246,7 @@
 }
 
 .chat-container-GPT-messages-user-bubble:hover {
-    border: #42534d 3px solid;
+    border: 2px solid #42534d;
 }
 
 .chat-container-GPT-messages-user-bubble.delete {
@@ -263,7 +266,7 @@
 .chat-container-GPT-messages-bot-icon {
     display: grid;
     color: white;
-    background-color: #0f5886;
+    background: radial-gradient(circle, #0f5886 0%, #0a4268 100%);
     margin-left: 5%;
     width: 60px;
     height: 60px;
@@ -272,6 +275,7 @@
     border-radius: 30px;
     font-family: 'Broadway';
     font-size: 20px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
 }
 
 #raw-message {
@@ -283,21 +287,23 @@
 .chat-container-GPT-messages-bot-bubble {
     margin-left: 20px;
     background-color: #222222;
+    border-radius: 15px 15px 15px 2px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
     box-sizing: border-box;
     padding: 0px 20px;
     min-height: 60px;
     border-radius: 30px;
     max-width: 70%;
-    border: #222222 3px solid;
+    border: 3px solid transparent;
     transition: 0.3s;
 }
 
 .chat-container-GPT-messages-bot-bubble:hover {
-    border: #333333 3px solid;
+    border: 3px solid #333333;
 }
 
 .chat-container-GPT-messages-bot-bubble.succeed {
-    border: #0b6b4b 3px solid;
+    border: 3px solid #0b6b4b;
 }
 
 .chat-container-GPT-messages-bot-bubble.delete {
@@ -334,6 +340,7 @@
     max-width: 100%;
     white-space: pre-wrap;
     transition: 0.3s;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
 }
 
 .chat-container-GPT-messages-bot-bubble .code-block:not(#raw-message)::after {
@@ -362,13 +369,6 @@
 .chat-container-GPT-messages-bot-bubble .code-block:not(#raw-message).fail {
     border: #6b0b0b 3px solid;
 }
-
-
-/* .chat-container-GPT-messages-bot-bubble:hover,
-.chat-container-GPT-messages-user-bubble:hover {
-    transform: translate(-1px, -1px);
-    box-shadow: 2px 2px 4px #000000;
-} */
 
 .chat-container-GPT-messages-bot-bubble .code-block::-webkit-scrollbar
  {

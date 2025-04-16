@@ -50,7 +50,7 @@ body {
 }
 
 .function-select-bar input[type="radio"]:checked + label {
-  background-color: #0b6b4b;
+  background: linear-gradient(135deg, #0b6b4b 0%, #109c6e 100%);
 }
 
 .GPT-window {
@@ -71,6 +71,9 @@ body {
   box-sizing: border-box;
   transition: all 0.3s ease;
   font-size: 12px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .sidebar-title {
@@ -81,7 +84,7 @@ body {
   align-items: center;
   justify-content: center;
   color: white;
-  background-color: #0b6b4b;
+  background: linear-gradient(135deg, #0b6b4b 0%, #109c6e 100%);
   width: 200px;
   height: 60px;
   border-radius: 30px;
@@ -90,11 +93,12 @@ body {
   font-size: 35px;
   cursor: pointer;
   transition: 0.3s;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
 }
 
 .sidebar-title:hover {
+  box-shadow: 0 0 10px #aeeed9;
   transform: scale(1.1);
-  box-shadow: 0px 0px 10px #aeeed9;
 }
 
 .sidebar-GPT-select {
@@ -204,7 +208,7 @@ body {
   align-items: center;
   width: 100%;
   box-sizing: border-box;
-  background-color: #0f0f0f;
+  background: linear-gradient(0deg, #131825 0%, #0f0c17 100%);
   min-height: 40px;
   border-radius: 20px;
 }
@@ -319,7 +323,7 @@ body {
 #stop-button {
   display: none;
   color: white;
-  background-color: #811f1f;
+  background: linear-gradient(135deg, #811f1f 0%, #9b4646 100%);
   margin-left: 20px;
   width: 40px;
   height: 40px;
@@ -332,7 +336,7 @@ body {
 }
 
 #stop-button:hover {
-  background-color: #9b4646;
+  background: linear-gradient(135deg, #9b4646 0%, #b25050 100%);
 }
 
 #stop-button:active {
@@ -367,13 +371,14 @@ body {
   height: 50px;
   margin: 30px;
   color: #ffffff;
-  background-color: #506860;
-  border: 0px;
+  background: linear-gradient(90deg, #074732 0%, #0b6b4b 100%);
+  border: none;
   border-radius: 20px;
   font-size: 20px;
   font-family: 'Berlin Sans FB';
   cursor: pointer;
   transition: all 0.3s ease;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
 }
 
 .chat-record-sidebar-GPT:hover .new-chat-button-GPT {
@@ -382,7 +387,9 @@ body {
 }
 
 .new-chat-button-GPT:hover {
-  background-color: #0b6b4b;
+  background: linear-gradient(90deg, #0b6b4b 0%, #109c6e 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 15px rgba(0, 0, 0, 0.3);
 }
 
 .new-chat-button-GPT:active {
@@ -398,7 +405,7 @@ body {
   flex: 1;
   /* max-height: 100vh; */
   width: 260px;
-  background-color: #08110e;
+  background: linear-gradient(90deg, #0b0b0b 0%, #000000 100%);
   margin-bottom: 20px;
   border-radius: 20px;
   box-sizing: border-box;
@@ -408,9 +415,10 @@ body {
 }
 
 .record-container-GPT::-webkit-scrollbar {
+  display: none;
   width: 8px;
 }
-
+/* 
 .record-container-GPT::-webkit-scrollbar-track {
   background: #000000;
   border-radius: 4px;
@@ -423,7 +431,7 @@ body {
 
 .record-container-GPT::-webkit-scrollbar-thumb:hover {
   background: #0b6b4b;
-}
+} */
 
 .record-option {
   display: flex;

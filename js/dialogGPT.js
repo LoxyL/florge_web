@@ -18,6 +18,9 @@ export class DialogGPT {
 		this._loadRecordList();
 		this._modelSelectInteract();
 		
+		this.loadSidebarSettings();
+		this.addSidebarEventListeners();
+		
 		this._updateModelConfig(document.getElementById('model-GPT').value);
 		console.log("[INFO]Initial model set to:", document.getElementById('model-GPT').value);
 	}
@@ -31,6 +34,7 @@ export class DialogGPT {
 				apiKey: apikeyDeepseek,
 				model: modelName
 			});
+			console.log(urlDeepseek);
 		} else {
 			const urlGPT = document.getElementById('config-source-GPT').value;
 			const apikeyGPT = document.getElementById('config-apikey-GPT').value;
@@ -39,6 +43,7 @@ export class DialogGPT {
 				apiKey: apikeyGPT,
 				model: modelName
 			});
+			console.log(urlGPT);
 		}
 	}
 
@@ -1179,15 +1184,14 @@ export class DialogGPT {
 			const recordList = await this._getRecordList();
 			const index = recordList.recordIds.indexOf(this.current_record_id);
 			const recordContents = await this._getRecordData();
-			console.log(recordContents);
 
 			const record = document.getElementById(`record-GPT-${this.current_record_id}`);
 			const recordTitle = record.children[0];
 
-			if(recordTitle.innerHTML !== "New Chat") return;
+			if(recordTitle.innerHTML !== "New Chat" && recordTitle.innerHTML !== "") return;
 
 			let title = '';
-			const contentIter = this.agent.interact(systemPrompt, JSON.stringify(recordContents[1]));
+			const contentIter = this.agent.interact(systemPrompt, JSON.stringify(recordContents));
 			
 			for await (const piece of contentIter) {
 				if (piece == undefined) continue;
@@ -1198,5 +1202,31 @@ export class DialogGPT {
 			recordList.recordTitles[index] = title;
 			await this._saveRecordList(recordList);
 		}
+	}
+
+	loadSidebarSettings() {
+		if (localStorage.getItem('model-GPT')) {
+			document.getElementById('model-GPT').value = localStorage.getItem('model-GPT');
+		}
+		
+		if (localStorage.getItem('max-tokens')) {
+			document.getElementById('max-tokens').value = localStorage.getItem('max-tokens');
+		}
+
+		if (localStorage.getItem('max-contexts')) {
+			document.getElementById('max-contexts').value = localStorage.getItem('max-contexts');
+		}
+	}
+
+	saveSidebarSettings() {
+		localStorage.setItem('model-GPT', document.getElementById('model-GPT').value);
+		localStorage.setItem('max-tokens', document.getElementById('max-tokens').value);
+		localStorage.setItem('max-contexts', document.getElementById('max-contexts').value);
+	}
+
+	addSidebarEventListeners() {
+		document.getElementById('model-GPT').addEventListener('change', () => this.saveSidebarSettings());
+		document.getElementById('max-tokens').addEventListener('input', () => this.saveSidebarSettings());
+		document.getElementById('max-contexts').addEventListener('input', () => this.saveSidebarSettings());
 	}
 }
