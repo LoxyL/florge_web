@@ -1211,17 +1211,21 @@ export class DialogGPT {
 		
 		if (localStorage.getItem('max-tokens')) {
 			document.getElementById('max-tokens').value = localStorage.getItem('max-tokens');
+			document.getElementById("max-tokens-value").innerHTML = document.getElementById('max-tokens').value;
 		}
 
 		if (localStorage.getItem('max-contexts')) {
 			document.getElementById('max-contexts').value = localStorage.getItem('max-contexts');
+			document.getElementById("max-contexts-value").innerHTML = document.getElementById('max-contexts').value;
 		}
 	}
 
 	saveSidebarSettings() {
 		localStorage.setItem('model-GPT', document.getElementById('model-GPT').value);
 		localStorage.setItem('max-tokens', document.getElementById('max-tokens').value);
+		document.getElementById("max-tokens-value").innerHTML = document.getElementById('max-tokens').value;
 		localStorage.setItem('max-contexts', document.getElementById('max-contexts').value);
+		document.getElementById("max-contexts-value").innerHTML = document.getElementById('max-contexts').value;
 	}
 
 	addSidebarEventListeners() {

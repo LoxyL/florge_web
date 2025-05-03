@@ -53,12 +53,14 @@
 			<div class="sidebar-GPT-max-tokens-setting">
 				<label for="max-tokens">Max Tokens</label>
 				<br>
-				<input type="number" name="max-tokens" id="max-tokens" value="4000" class="sidebar-GPT-input">
+				<input type="range" name="max-tokens" id="max-tokens" value="4000" min="1" max="8000" step="1" class="sidebar-GPT-input">
+				<span id="max-tokens-value">4000</span>
 			</div>
 			<div class="sidebar-GPT-max-contexts-setting">
 				<label for="max-contexts">Max Contexts</label>
 				<br>
-				<input type="number" name="max-contexts" id="max-contexts" value="10" class="sidebar-GPT-input">
+				<input type="range" name="max-contexts" id="max-contexts" value="10" min="1" max="20" step="1" class="sidebar-GPT-input">
+				<span id="max-contexts-value">10</span>
 			</div>
 		</div>
 		
