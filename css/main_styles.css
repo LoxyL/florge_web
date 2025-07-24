@@ -222,7 +222,7 @@ body {
   flex: 1;
   width: 100%;
   overflow: auto;
-  scroll-behavior: smooth;
+  /* scroll-behavior: smooth; */
 }
 
 .chat-container-messages-container::-webkit-scrollbar {

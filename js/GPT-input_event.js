@@ -8,6 +8,9 @@ textarea.addEventListener('input', function () {
 });
 
 textarea.addEventListener('keydown', function(event) {
+    if (event.isComposing) {
+        return;
+    }
     if (event.key === 'Enter') {
         if (event.ctrlKey || event.shiftKey) {
             const start = textarea.selectionStart;
