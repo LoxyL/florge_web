@@ -2,5 +2,5 @@
 test/
 config.json
 data/
-/images
-/icons
+images
+icons
