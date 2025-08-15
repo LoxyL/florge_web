@@ -18,7 +18,7 @@ async function handleStreamWrite(filePath, req, res, recordId = null) {
             const idStr = recordId ? ` ${recordId}` : '';
             console.log(`Error saving Record${idStr}:`, err);
             if (!res.headersSent) {
-                res.status(500).send(`Error saving Record${idStr}`);
+                res.status(500).json({ error: `Error saving Record${idStr}` });
             }
             reject(err);
         });
@@ -26,7 +26,7 @@ async function handleStreamWrite(filePath, req, res, recordId = null) {
         writeStream.on('finish', () => {
             const idStr = recordId ? `_${recordId}` : '_list';
             if (!res.headersSent) {
-                res.send('Done saving Records');
+                res.json({ message: 'Done saving Records' });
             }
             console.log(`Save record${idStr}[${dataSize/1024/1024}MB]`);
             resolve();
@@ -58,7 +58,7 @@ async function handleStreamRead(filePath, res, recordId = null) {
             const idStr = recordId ? ` "${recordId}"` : '';
             console.log(`Error reading Records${idStr}:`, err);
             if (!res.headersSent) {
-                return res.status(500).send(`Error reading Records${idStr}`);
+                return res.status(500).json({ error: `Error reading Records${idStr}` });
             }
             res.end();
         });
@@ -81,7 +81,7 @@ async function handleStreamRead(filePath, res, recordId = null) {
         }
         const idStr = recordId ? ` "${recordId}"` : '';
         console.error(`Error accessing record file${idStr}:`, err);
-        res.status(500).send(`Error accessing record file${idStr}`);
+        res.status(500).json({ error: `Error accessing record file${idStr}` });
     }
 }
 
@@ -106,10 +106,10 @@ app.post('/config', async (req, res) => {
 
     try {
         await fsPromises.writeFile(filePath, JSON.stringify(config));
-        res.send(`Done saving Configurations.`);
+        res.json({ message: `Done saving Configurations.` });
         console.log(`Save configurations[${computeStringSizeMB(JSON.stringify(config))/1024/1024}MB]`);
     } catch (err) {
-        res.status(500).send('Error saving Configurations');
+        res.status(500).json({ error: 'Error saving Configurations' });
     }
 })
 
@@ -126,7 +126,7 @@ app.get('/config', async (req, res) => {
         res.json(JSON.parse(config));
         console.log(`Load configurations[${computeStringSizeMB(JSON.stringify(config))/1024/1024}MB]`);
     } catch (err) {
-        res.status(500).send('Error reading Configurations');
+        res.status(500).json({ error: 'Error reading Configurations' });
     }
 })
 
@@ -140,7 +140,7 @@ app.post('/gpt/record', async (req, res) => {
     } catch (err) {
         console.error("Error handling record save:", err);
         if (!res.headersSent) {
-            res.status(500).send('Error saving record');
+            res.status(500).json({ error: 'Error saving record' });
         }
     }
 });
@@ -156,7 +156,7 @@ app.post('/gpt/record/:id', async (req, res) => {
     } catch (err) {
         console.error(`Error handling record ${id} save:`, err);
         if (!res.headersSent) {
-            res.status(500).send(`Error saving record ${id}`);
+            res.status(500).json({ error: `Error saving record ${id}` });
         }
     }
 });

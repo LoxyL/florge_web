@@ -4,13 +4,19 @@ export class DialogGPT {
 	constructor() {
 		this.useGlobalSystemPrompt = false;
 		this.dialog_num = 0;
-		this.bot = null; // Will be initialized after config is loaded
-		this.agent = null; // Will be initialized after config is loaded
+		this.bot = null;
+		this.agent = null;
 		this.current_record_id = 0;
 		this.useAgent = true;
 		this.ctrlPressed = false;
 		this.image_buffer = [];
+		this.deleteTimer = null;
+		this.regenerateTimer = null;
 
+		document.addEventListener('config-loaded', () => this.init());
+	}
+
+	init() {
 		this._switchInteract();
 		this._windowInteract();
 		this._imageLoadInteract();
@@ -19,10 +25,6 @@ export class DialogGPT {
 		
 		this.loadSidebarSettings();
 		this.addSidebarEventListeners();
-		
-		// This will be called from configEvent.js after configs are loaded.
-		// this._updateModelConfig(document.getElementById('model-GPT').value);
-		// console.log("[INFO]Initial model set to:", document.getElementById('model-GPT').value);
 	}
 
 	initializeBots(config) {
@@ -34,14 +36,13 @@ export class DialogGPT {
 		this.agent = new AgentGPT({
 			url: config.urlGPT,
 			apiKey: config.apikeyGPT
-			// Agent model is often fixed or configured separately
 		});
 		console.log("[INFO] Bot and Agent initialized.");
 		this._updateModelConfig(document.getElementById('model-GPT').value);
 	}
 
 	_updateModelConfig(modelName) {
-		if (!this.bot) return; // Don't run if bot is not initialized
+		if (!this.bot) return;
 
 		if(modelName === 'deepseek-ai/DeepSeek-V3' || modelName === 'deepseek-ai/DeepSeek-R1') {
 			const urlDeepseek = document.getElementById('config-source-deepseek').value;
@@ -111,7 +112,9 @@ export class DialogGPT {
 		})
 
 		window.addEventListener('keyup', event => {
-			if(event.key === 'Control') this.ctrlPressed = false;
+			if(event.key === 'Control') {
+				this.ctrlPressed = false;
+			}
 		})
 	}
 
@@ -206,9 +209,6 @@ export class DialogGPT {
 				apiKey: document.getElementById('config-apikey-GPT').value,
 				model: document.getElementById('model-GPT').value
 			};
-			// Re-initializing bot is not ideal, let's just clear history.
-			// A better approach would be a full state management solution.
-			// For now, we ensure the config is up-to-date.
 			this.bot.setConfig(config);
 		}
 		this.dialog_num++;
@@ -236,18 +236,6 @@ export class DialogGPT {
 
 		const rawContent = bubble.lastElementChild.innerHTML;
 
-		let deleteTimer;
-		let regenerateTimer;
-		
-		window.addEventListener('keyup', event => {
-			if(event.key === 'Control') {
-				clearTimeout(deleteTimer);
-				clearTimeout(regenerateTimer);
-				bubble.classList.remove('regenerate');
-				bubble.classList.remove('delete');
-			}
-		})
-
 		bubble.addEventListener('contextmenu', event => {
 			event.preventDefault();
 
@@ -264,6 +252,7 @@ export class DialogGPT {
 
 			if(rightClickCount === 2){
 				this._switchMessage(bubble);
+				rightClickCount = 0;
 			}
 		})
 
@@ -279,11 +268,18 @@ export class DialogGPT {
 					}, 500)
 				})
 				.catch(err => {
+					bubble.classList.add('fail');
+					setTimeout(() => {
+						bubble.classList.remove('fail');
+					}, 500)
 					console.error("[INFO][BUBBLE]Message copy error:", err);
 				})
 				console.log("[INFO][BUBBLE]Copied.")
 			}
 		})
+
+		let deleteTimer;
+		let regenerateTimer;
 
 		bubble.addEventListener('mousedown', (event) => {
 			if(event.button === 0 && this.ctrlPressed){
@@ -301,32 +297,29 @@ export class DialogGPT {
 				const setId = bubble.parentNode.id.split('-');
 				const messageId = Number(setId[setId.length-1]);
 				
-				clearTimeout(regenerateTimer);
 				regenerateTimer = setTimeout(() => {
 					this._regenerateResponse(messageId);
-					bubble.classList.remove('regenerate');
 				}, 1000);
 			}
 		});
 
-		bubble.addEventListener('mouseup', function() {
+		bubble.addEventListener('mouseup', () => {
 			clearTimeout(deleteTimer);
 			clearTimeout(regenerateTimer);
 			bubble.classList.remove('delete');
 			bubble.classList.remove('regenerate');
-		})
+		});
 
-		bubble.addEventListener('mouseleave', function() {
+		bubble.addEventListener('mouseleave', () => {
 			clearTimeout(deleteTimer);
 			clearTimeout(regenerateTimer);
 			bubble.classList.remove('delete');
 			bubble.classList.remove('regenerate');
-		})
+		});
 	}
 
 	_userBubbleInteract(bubble) {
-		let timer;
-
+		let deleteTimer;
 		bubble.addEventListener('mousedown', (event) => {
 			if(event.button === 0 && this.ctrlPressed){
 				bubble.classList.add('delete');
@@ -334,34 +327,21 @@ export class DialogGPT {
 				const setId = bubble.parentNode.id.split('-');
 				const messageId = Number(setId[setId.length-1]);
 				
-				timer = setTimeout(() => {
+				deleteTimer = setTimeout(() => {
 					this._deleteMessage(messageId);
 				}, 1000);
 			}
 		});
 
-		bubble.addEventListener('mouseup', function() {
-			clearTimeout(timer);
+		bubble.addEventListener('mouseup', () => {
+			clearTimeout(deleteTimer);
 			bubble.classList.remove('delete');
-		})
+		});
 
-		bubble.addEventListener('mouseleave', function() {
-			clearTimeout(timer);
+		bubble.addEventListener('mouseleave', () => {
+			clearTimeout(deleteTimer);
 			bubble.classList.remove('delete');
-		})
-	}
-
-	_bubbleInteractAll() {
-		const botBubbles = document.querySelectorAll('.chat-container-GPT-messages-bot-bubble');
-		const userBubbles = document.querySelectorAll('.chat-container-GPT-messages-user-bubble');
-
-		botBubbles.forEach(bubble => {
-			this._botBubbleInteract(bubble);
-		})
-
-		userBubbles.forEach(bubble => {
-			this._userBubbleInteract(bubble);
-		})
+		});
 	}
 
 	_codeInteract(block) {
@@ -425,6 +405,91 @@ export class DialogGPT {
 		});
 	}
 
+	_bubbleInteractAll() {
+		const botBubbles = document.querySelectorAll('.chat-container-GPT-messages-bot-bubble');
+		const userBubbles = document.querySelectorAll('.chat-container-GPT-messages-user-bubble');
+
+		botBubbles.forEach(bubble => {
+			this._botBubbleInteract(bubble);
+		});
+
+		userBubbles.forEach(bubble => {
+			this._userBubbleInteract(bubble);
+		});
+	}
+
+	_createUserMessageElement(id, content) {
+		const userSet = document.createElement("div");
+		userSet.setAttribute("id", `chat-container-GPT-messages-user-${id}`);
+		userSet.setAttribute("class", "chat-container-GPT-messages-user");
+
+		const userIcon = document.createElement("div");
+		userIcon.setAttribute("class", "chat-container-GPT-messages-user-icon");
+		userIcon.innerHTML = "U";
+
+		const userBubble = document.createElement("div");
+		userBubble.setAttribute("class", "chat-container-GPT-messages-user-bubble");
+
+		if (Array.isArray(content)) {
+			for (const ele of content) {
+				if (ele.type === 'text') {
+					const pre = document.createElement("pre");
+					pre.textContent = ele.text;
+					userBubble.appendChild(pre);
+				} else if (ele.type === "image_url") {
+					const img = document.createElement("img");
+					img.src = ele.image_url.url;
+					const pre = document.createElement("pre");
+					pre.appendChild(img);
+					userBubble.appendChild(pre);
+				}
+			}
+		} else {
+			const pre = document.createElement("pre");
+			pre.innerHTML = this._processRawDisplay(content);
+			userBubble.appendChild(pre);
+		}
+
+		userSet.appendChild(userIcon);
+		userSet.appendChild(userBubble);
+		this._userBubbleInteract(userBubble);
+		return userSet;
+	}
+
+	_createBotMessageElement(id, content) {
+		const botSet = document.createElement("div");
+		botSet.setAttribute("id", `chat-container-GPT-messages-bot-${id}`);
+		botSet.setAttribute("class", "chat-container-GPT-messages-bot");
+
+		const botIcon = document.createElement("div");
+		botIcon.setAttribute("class", "chat-container-GPT-messages-bot-icon");
+		botIcon.innerHTML = "B";
+
+		const botBubble = document.createElement("div");
+		botBubble.setAttribute("class", "chat-container-GPT-messages-bot-bubble");
+		botBubble.innerHTML = this._processTextDisplay(content);
+
+		botSet.appendChild(botIcon);
+		botSet.appendChild(botBubble);
+
+		renderMathInElement(botSet, {
+			delimiters: [
+				{ left: "\\[", right: "\\]", display: true },
+				{ left: "\\(", right: "\\)", display: false },
+				{ left: "$$", right: "$$", display: true },
+				{ left: "$", right: "$", display: false }
+			]
+		});
+
+		const rawContainer = document.createElement('pre');
+		rawContainer.setAttribute("id", "raw-message");
+		rawContainer.innerHTML = content;
+		botBubble.appendChild(rawContainer);
+
+		this._botBubbleInteract(botBubble);
+		return botSet;
+	}
+
 	_appendSystemPromptBubble(content) {
 		const chatContainer = document.getElementById("chat-container-GPT-messages");
 
@@ -456,31 +521,15 @@ export class DialogGPT {
 	}
 
 	_send_message(inputValue) {
-		const userSet = document.createElement("div");
-		userSet.setAttribute("id", 'chat-container-GPT-messages-user-'+this.dialog_num);
-		userSet.setAttribute("class", "chat-container-GPT-messages-user");
-
-		const userIcon = document.createElement("div");
-		userIcon.setAttribute("class", "chat-container-GPT-messages-user-icon");
-		userIcon.innerHTML = "U";
-
-		const userBubble = document.createElement("div");
-		userBubble.setAttribute("class", "chat-container-GPT-messages-user-bubble");
-		userBubble.innerHTML = `<pre>${this._processRawDisplay(inputValue)}</pre>`;
-
-		userSet.appendChild(userIcon);
-		userSet.appendChild(userBubble);
-		
+		const userSet = this._createUserMessageElement(this.dialog_num, inputValue);
 		const chatContainer = document.getElementById("chat-container-GPT-messages");
 		chatContainer.appendChild(userSet);
 
-		this._userBubbleInteract(userBubble);
-		chatContainer.scrollTop = chatContainer.scrollHeight;
-
-		if(this.image_buffer.length) {
-			const buffer = JSON.parse(JSON.stringify(this.image_buffer))
+		const userBubble = userSet.querySelector('.chat-container-GPT-messages-user-bubble');
+		if (this.image_buffer.length) {
+			const buffer = JSON.parse(JSON.stringify(this.image_buffer));
 			this.image_buffer = [];
-			for(const img of buffer) {
+			for (const img of buffer) {
 				const imgEle = document.createElement('img');
 				imgEle.src = img;
 				const pre = document.createElement("pre");
@@ -491,6 +540,8 @@ export class DialogGPT {
 		} else {
 			this.bot.appendUserMessage(inputValue);
 		}
+
+		chatContainer.scrollTop = chatContainer.scrollHeight;
 	}
 
 	async _receive_message() {
@@ -509,7 +560,9 @@ export class DialogGPT {
 
 		const botBubble = document.createElement("div");
 		botBubble.setAttribute("class", "chat-container-GPT-messages-bot-bubble");
-		botBubble.innerHTML = this._processTextDisplay("...");
+		
+		const streamDisplay = document.createElement("span");
+		botBubble.appendChild(streamDisplay);
 
 		botSet.appendChild(botIcon);
 		botSet.appendChild(botBubble);
@@ -519,21 +572,20 @@ export class DialogGPT {
 		for await (const piece of contentIter) {
 			if (piece == undefined) continue;
 			receive_content += piece;
-			botBubble.innerHTML = this._processTextDisplay(receive_content);
-			renderMathInElement(botSet, {
-				delimiters: [
-					{left: "\\[", right: "\\]", display: true},
-					{left: "\\(", right: "\\)", display: false},
-					{left: "$$", right: "$$", display: true},
-					{left: "$", right: "$", display: false}
-				]
-			});
-			const codeBlocks = botBubble.querySelectorAll('code');
-			codeBlocks.forEach(block => {
-				this._codeInteract(block);
-			})
+			streamDisplay.textContent = receive_content;
 			chatContainer.scrollTop = chatContainer.scrollHeight;
 		}
+
+		botBubble.innerHTML = this._processTextDisplay(receive_content);
+		renderMathInElement(botSet, {
+			delimiters: [
+				{left: "\\[", right: "\\]", display: true},
+				{left: "\\(", right: "\\)", display: false},
+				{left: "$$", right: "$$", display: true},
+				{left: "$", right: "$", display: false}
+			]
+		});
+		this._codeInteractAll();
 
 		const rawContainer = document.createElement('pre');
 		rawContainer.setAttribute("id", "raw-message");
@@ -545,7 +597,7 @@ export class DialogGPT {
 	}
 
 	streamStop() {
-		if (!this.bot) return; // Add guard clause to prevent error if bot is not initialized
+		if (!this.bot) return;
 		this.bot.streamAbort();
 	}
 
@@ -873,24 +925,26 @@ export class DialogGPT {
 		const contentIter = this.bot.regenerateMessage(id);
 
 		const botBubble = document.getElementById('chat-container-GPT-messages-bot-'+id).querySelector('.chat-container-GPT-messages-bot-bubble');
-		botBubble.innerHTML = this._processTextDisplay("...");
+		
+		const streamDisplay = document.createElement("span");
+		botBubble.innerHTML = '';
+		botBubble.appendChild(streamDisplay);
 
 		let receive_content = '';
 		for await (const piece of contentIter) {
 			if (piece == undefined) continue;
 			receive_content += piece;
-			botBubble.innerHTML = this._processTextDisplay(receive_content);
-			renderMathInElement(botBubble, {
-				delimiters: [
-					{left: "$$", right: "$$", display: true},
-					{left: "$", right: "$", display: false}
-				]
-			});
-			const codeBlocks = botBubble.querySelectorAll('code');
-			codeBlocks.forEach(block => {
-				this._codeInteract(block);
-			})
+			streamDisplay.textContent = receive_content;
 		}
+
+		botBubble.innerHTML = this._processTextDisplay(receive_content);
+		renderMathInElement(botBubble, {
+			delimiters: [
+				{left: "$$", right: "$$", display: true},
+				{left: "$", right: "$", display: false}
+			]
+		});
+		this._codeInteractAll();
 
 		const rawContainer = document.createElement('pre');
 		rawContainer.setAttribute("id", "raw-message");
@@ -923,26 +977,7 @@ export class DialogGPT {
 				console.log('[INFO]Error reading record list:', response.statusText);
 				return undefined;
 			}
-			
-			// 使用流式读取
-			const reader = response.body.getReader();
-			const decoder = new TextDecoder('utf-8');
-			let buffer = '';
-			
-			while (true) {
-				const {done, value} = await reader.read();
-				
-				if (done) {
-					try {
-						return JSON.parse(buffer);
-					} catch (e) {
-						console.error('解析记录列表时出错:', e);
-						return undefined;
-					}
-				}
-				
-				buffer += decoder.decode(value, {stream: true});
-			}
+			return await response.json();
 		} catch (error) {
 			console.log('[INFO]Error reading record list:', error);
 			return undefined;
@@ -974,28 +1009,7 @@ export class DialogGPT {
 				console.log('[INFO]Error reading record:', response.statusText);
 				return undefined;
 			}
-			
-			// 使用流式读取
-			const reader = response.body.getReader();
-			const decoder = new TextDecoder('utf-8');
-			let buffer = '';
-			
-			while (true) {
-				const {done, value} = await reader.read();
-				
-				if (done) {
-					// 处理缓冲区中的最后数据
-					try {
-						return JSON.parse(buffer);
-					} catch (e) {
-						console.error('解析记录数据时出错:', e);
-						return undefined;
-					}
-				}
-				
-				// 解码并添加到缓冲区
-				buffer += decoder.decode(value, {stream: true});
-			}
+			return await response.json();
 		} catch (error) {
 			console.log('[INFO]Error reading record:', error);
 			return undefined;
@@ -1128,67 +1142,12 @@ export class DialogGPT {
 		for(let i in recordContents){
 			const piece = recordContents[i];
 			if(piece.role == 'user'){
-				const userSet = document.createElement("div");
-				userSet.setAttribute("id", 'chat-container-GPT-messages-user-'+this.dialog_num);
-				userSet.setAttribute("class", "chat-container-GPT-messages-user");
-		
-				const userIcon = document.createElement("div");
-				userIcon.setAttribute("class", "chat-container-GPT-messages-user-icon");
-				userIcon.innerHTML = "U";
-		
-				const userBubble = document.createElement("div");
-				userBubble.setAttribute("class", "chat-container-GPT-messages-user-bubble");
-				if(Array.isArray(piece.content)){
-					for (const ele of piece.content) {
-						if (ele.type == 'text') {
-							userBubble.innerHTML += `<pre>${this._processRawDisplay(ele.text)}</pre>`;
-						} else if (ele.type == "image_url") {
-							const img = document.createElement("img");
-							img.src = ele.image_url.url;
-							const pre = document.createElement("pre");
-							pre.appendChild(img);
-							userBubble.appendChild(pre);
-						}
-					}
-				} else {
-					userBubble.innerHTML = `<pre>${this._processRawDisplay(piece.content)}</pre>`;
-				}
-		
-				userSet.appendChild(userIcon);
-				userSet.appendChild(userBubble);
-				
+				const userSet = this._createUserMessageElement(this.dialog_num, piece.content);
 				chatContainer.appendChild(userSet);
 			}
 			if(piece.role == 'assistant'){
-				const botSet = document.createElement("div");
-				botSet.setAttribute("id", 'chat-container-GPT-messages-bot-'+this.dialog_num);
-				botSet.setAttribute("class", "chat-container-GPT-messages-bot");
-		
-				const botIcon = document.createElement("div");
-				botIcon.setAttribute("class", "chat-container-GPT-messages-bot-icon");
-				botIcon.innerHTML = "B";
-		
-				const botBubble = document.createElement("div");
-				botBubble.setAttribute("class", "chat-container-GPT-messages-bot-bubble");
-				botBubble.innerHTML = this._processTextDisplay(piece.content);
-		
-				botSet.appendChild(botIcon);
-				botSet.appendChild(botBubble);
+				const botSet = this._createBotMessageElement(this.dialog_num, piece.content);
 				chatContainer.appendChild(botSet);
-				
-				renderMathInElement(botSet, {
-					delimiters: [
-						{left: "\\[", right: "\\]", display: true},
-						{left: "\\(", right: "\\)", display: false},
-						{left: "$$", right: "$$", display: true},
-						{left: "$", right: "$", display: false}
-					]
-				});
-
-				const rawContainer = document.createElement('pre');
-				rawContainer.setAttribute("id", "raw-message");
-				rawContainer.innerHTML = piece.content;
-				botBubble.appendChild(rawContainer);
 			}
 			if(piece.role == 'system'){
 				const localSystemSet = document.createElement("div");

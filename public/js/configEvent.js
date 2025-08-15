@@ -92,6 +92,8 @@ async function configLoad() {
             dialog.initializeBots(config);
         }
 
+        document.dispatchEvent(new CustomEvent('config-loaded'));
+
     } catch (error) {
         console.error('Fail loading Configurations:', error);
         alert('Fail loading Configurations.');
@@ -118,4 +120,5 @@ function configOpenTab(event, tabName) {
 configContainerInit();
 configLoad();
 
-window.configOpenTab = configOpenTab; // Expose to global scope for inline onclick handlers
+window.configSave = configSave;
+window.configOpenTab = configOpenTab;

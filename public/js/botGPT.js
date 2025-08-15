@@ -64,8 +64,12 @@ class BaseGPT {
 
                 for (const line of lines) {
                     if (line.trim().startsWith('data:')) {
+                        const data = line.trim().substring(5).trim();
+                        if (data === '[DONE]') {
+                            break; // Stream finished
+                        }
                         try {
-                            const message = JSON.parse(line.trim().substring(5).trim());
+                            const message = JSON.parse(data);
                             if (message.choices && message.choices.length > 0) {
                                 if (message.choices[0].delta.content == undefined) continue;
                                 yield message.choices[0].delta.content;
