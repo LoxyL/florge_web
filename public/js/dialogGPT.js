@@ -1,4 +1,5 @@
 import {BotGPT, AgentGPT} from "./botGPT.js";
+import { config } from './configEvent.js';
 
 export class DialogGPT {
 	constructor() {
@@ -27,7 +28,7 @@ export class DialogGPT {
 		this.addSidebarEventListeners();
 	}
 
-	initializeBots(config) {
+	initializeBots() {
 		this.bot = new BotGPT({
 			url: config.urlGPT,
 			apiKey: config.apikeyGPT,
@@ -45,23 +46,19 @@ export class DialogGPT {
 		if (!this.bot) return;
 
 		if(modelName === 'deepseek-ai/DeepSeek-V3' || modelName === 'deepseek-ai/DeepSeek-R1') {
-			const urlDeepseek = document.getElementById('config-source-deepseek').value;
-			const apikeyDeepseek = document.getElementById('config-apikey-deepseek').value;
 			this.bot.setConfig({
-				url: urlDeepseek,
-				apiKey: apikeyDeepseek,
+				url: config.urlDeepseek,
+				apiKey: config.apikeyDeepseek,
 				model: modelName
 			});
-			console.log(urlDeepseek);
+			console.log(config.urlDeepseek);
 		} else {
-			const urlGPT = document.getElementById('config-source-GPT').value;
-			const apikeyGPT = document.getElementById('config-apikey-GPT').value;
 			this.bot.setConfig({
-				url: urlGPT,
-				apiKey: apikeyGPT,
+				url: config.urlGPT,
+				apiKey: config.apikeyGPT,
 				model: modelName
 			});
-			console.log(urlGPT);
+			console.log(config.urlGPT);
 		}
 	}
 
@@ -123,7 +120,7 @@ export class DialogGPT {
 
 		globalSystemPromptSwitch.addEventListener("change", () => {
             const useSystemPrompt = globalSystemPromptSwitch.checked;
-            const systemPrompt = document.getElementById("config-system-prompt-GPT").value;
+            const systemPrompt = config.systemPromptGPT;
             const maxTokens = Number(document.getElementById("max-tokens").value);
             
             this.useGlobalSystemPrompt = useSystemPrompt;
@@ -204,12 +201,12 @@ export class DialogGPT {
 		container.innerHTML = '';
 		if (this.bot) {
 			this.bot.clearHistory();
-			const config = {
-				url: document.getElementById('config-source-GPT').value,
-				apiKey: document.getElementById('config-apikey-GPT').value,
+			const botConfig = {
+				url: config.urlGPT,
+				apiKey: config.apikeyGPT,
 				model: document.getElementById('model-GPT').value
 			};
-			this.bot.setConfig(config);
+			this.bot.setConfig(botConfig);
 		}
 		this.dialog_num++;
 	}
@@ -791,10 +788,10 @@ export class DialogGPT {
 			searchTitle.innerHTML = "Searching..."
 
 	
-			const useProxy = document.getElementById("config-use-proxy").checked;
-			const useWiki = document.getElementById("config-use-chat-search-GPT-wiki").checked;
-			const useBaidu = document.getElementById("config-use-chat-search-GPT-baidu").checked;
-			const useZhihu = document.getElementById("config-use-chat-search-GPT-zhihu").checked;
+			const useProxy = config.useProxy;
+			const useWiki = config.useChatSearchWiki;
+			const useBaidu = config.useChatSearchBaidu;
+			const useZhihu = config.useChatSearchZhihu;
 			
 			if(useWiki) {
 				const wikiBlock = document.createElement("div");
@@ -839,7 +836,7 @@ export class DialogGPT {
 
 	async *_searchFor(keyword, platform, useProxy=false) {
 		try {
-			const proxyUrl = document.getElementById('config-proxy-url').value;
+			const proxyUrl = config.proxyUrl;
 			const data = {
 				keyword: keyword,
 				useProxy: useProxy,
@@ -888,7 +885,7 @@ export class DialogGPT {
 			return;
 		}
 
-		const useChatSearch = document.getElementById('config-use-chat-search-GPT').checked;
+		const useChatSearch = config.useChatSearchGPT;
 
 		let inputValue = this._getInputGPT();
 		if((inputValue !== "") || this.image_buffer){

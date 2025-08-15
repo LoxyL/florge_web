@@ -1,5 +1,7 @@
 import { dialog } from './GPT-main.js';
 
+export let config = {};
+
 function configContainerInit(){
     const container = document.getElementById("config-container");
 
@@ -16,39 +18,20 @@ function configContainerInit(){
 
 
 async function configSave() {
-    const urlGPT = document.getElementById('config-source-GPT').value;
-    const apikeyGPT = document.getElementById('config-apikey-GPT').value;
-    const urlDeepseek = document.getElementById('config-source-deepseek').value;
-    const apikeyDeepseek = document.getElementById('config-apikey-deepseek').value;
-    const cxGoogleSearch = document.getElementById('config-cx-google-search').value;
-    const apikeyGoogleSearch = document.getElementById('config-apikey-google-search').value;
-    const systemPromptGPT = document.getElementById('config-system-prompt-GPT').value;
-    const useGlobalSystemPrompt = document.getElementById('config-use-global-system-prompt').checked;
-    const useProxy = document.getElementById('config-use-proxy').checked;
-    const proxyUrl = document.getElementById('config-proxy-url').value;
-
-    
-    const useChatSearchGPT = document.getElementById('config-use-chat-search-GPT').checked;
-    const useChatSearchWiki = document.getElementById('config-use-chat-search-GPT-wiki').checked;
-    const useChatSearchBaidu = document.getElementById('config-use-chat-search-GPT-baidu').checked;
-    const useChatSearchZhihu = document.getElementById('config-use-chat-search-GPT-zhihu').checked;
-
-    const config = {
-        urlGPT: urlGPT,
-        apikeyGPT: apikeyGPT,
-        urlDeepseek: urlDeepseek,
-        apikeyDeepseek: apikeyDeepseek,
-        cxGoogleSearch: cxGoogleSearch,
-        apikeyGoogleSearch: apikeyGoogleSearch,
-        systemPromptGPT: systemPromptGPT,
-        useGlobalSystemPrompt: useGlobalSystemPrompt,
-        useProxy: useProxy,
-        proxyUrl: proxyUrl,
-        useChatSearchGPT: useChatSearchGPT,
-        useChatSearchWiki: useChatSearchWiki,
-        useChatSearchBaidu: useChatSearchBaidu,
-        useChatSearchZhihu: useChatSearchZhihu
-    }
+    config.urlGPT = document.getElementById('config-source-GPT').value;
+    config.apikeyGPT = document.getElementById('config-apikey-GPT').value;
+    config.urlDeepseek = document.getElementById('config-source-deepseek').value;
+    config.apikeyDeepseek = document.getElementById('config-apikey-deepseek').value;
+    config.cxGoogleSearch = document.getElementById('config-cx-google-search').value;
+    config.apikeyGoogleSearch = document.getElementById('config-apikey-google-search').value;
+    config.systemPromptGPT = document.getElementById('config-system-prompt-GPT').value;
+    config.useGlobalSystemPrompt = document.getElementById('config-use-global-system-prompt').checked;
+    config.useProxy = document.getElementById('config-use-proxy').checked;
+    config.proxyUrl = document.getElementById('config-proxy-url').value;
+    config.useChatSearchGPT = document.getElementById('config-use-chat-search-GPT').checked;
+    config.useChatSearchWiki = document.getElementById('config-use-chat-search-GPT-wiki').checked;
+    config.useChatSearchBaidu = document.getElementById('config-use-chat-search-GPT-baidu').checked;
+    config.useChatSearchZhihu = document.getElementById('config-use-chat-search-GPT-zhihu').checked;
 
     try {
         const response = await fetch('/config', {
@@ -68,8 +51,10 @@ async function configSave() {
 async function configLoad() {
     try {
         const response = await fetch('/config');
-        const config = await response.json();
-        if (!config) throw new Error("Config not found or empty.");
+        const loadedConfig = await response.json();
+        if (!loadedConfig) throw new Error("Config not found or empty.");
+
+        config = loadedConfig;
 
         document.getElementById('config-source-GPT').value = config.urlGPT || '';
         document.getElementById('config-apikey-GPT').value = config.apikeyGPT || '';
@@ -89,7 +74,7 @@ async function configLoad() {
 
         // Initialize bots after loading config
         if (dialog) {
-            dialog.initializeBots(config);
+            dialog.initializeBots();
         }
 
         document.dispatchEvent(new CustomEvent('config-loaded'));
