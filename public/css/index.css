@@ -1,0 +1,79 @@
+@font-face {
+  font-family: 'Broadway';
+  src: url('../fonts/Broadway\ Regular.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Berlin Sans FB';
+  src: url('../fonts/BRLNSR.TTF') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Bauhaus 93';
+  src: url('../fonts/Bauhaus\ 93.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+    background-color: #121212;
+    flex-direction: column;
+    font-family: "Microsoft YaHei", sans-serif;
+    color: #ffffff;
+}
+
+.logo {
+    font-family: 'Broadway';
+    font-size: 10rem;
+    margin-bottom: 4rem;
+    background: linear-gradient(135deg, #0b6b4b 0%, #109c6e 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.nav-container {
+    display: flex;
+    gap: 2rem;
+}
+
+.nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 150px;
+    height: 150px;
+    color: white;
+    text-decoration: none;
+    font-family: 'Berlin Sans FB', sans-serif;
+    background-color: #1e1e1e;
+    border-radius: 15px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    transition: all 0.3s ease;
+}
+
+.nav-item:hover {
+    transform: translateY(-10px);
+    background: linear-gradient(135deg, #0b6b4b 0%, #109c6e 100%);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4), 0 0 15px rgba(14, 197, 136, 0.5);
+}
+
+.nav-item svg {
+    width: 64px;
+    height: 64px;
+    margin-bottom: 0.5rem;
+}
+
+.nav-item span {
+    font-size: 1.5rem;
+}

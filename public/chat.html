@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Florge - Chat</title>
+	<link rel="stylesheet" href="./css/chat.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.5.1/styles/default.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it/dist/markdown-it.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.5.1/highlight.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.13.11/katex.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.13.11/katex.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.13.11/contrib/auto-render.min.js"></script>
+</head>
+<body>
+	<div class="GPT-window">
+		<div id="sidebar-GPT" class="sidebar">
+			<a href="index.html" class="sidebar-title">
+				Florge
+			</a>
+			<div class="sidebar-setting">
+				<label for="model-GPT">Model</label>
+				<select name="model-GPT" id="model-GPT" class="sidebar-select">
+					<option value="deepseek-ai/DeepSeek-V3">Deepseek V3</option>
+					<option value="deepseek-ai/DeepSeek-R1">Deepseek R1</option>
+					<option value="gpt-5">GPT-5</option>
+					<option value="gpt-5-mini">GPT-5-mini</option>
+					<option value="gpt-5-nano">GPT-5-nano</option>
+					<option value="gpt-4o-mini">GPT-4o-mini</option>
+					<option value="chatgpt-4o-latest">GPT-4o</option>
+					<option value="gpt-4.1">GPT-4.1</option>
+					<option value="gpt-4.1-mini">GPT-4.1-mini</option>
+					<option value="gpt-4.1-nano">GPT-4.1-nano</option>
+					<option value="gpt-4-turbo">GPT-4</option>
+					<option value="gpt-3.5-turbo">GPT-3.5</option>
+					<option value="o1-mini-all">o1-mini</option>
+					<option value="o1-preview-all">o1-preview</option>
+					<option value="o1-pro-all">o1-pro</option>
+					<option value="gemini-pro">Gemini Pro</option>
+					<option value="gemini-pro-1.5">Gemini 1.5 Pro</option>
+					<option value="claude-3-5-sonnet-20240620">Claude 3.5 Sonnet</option>
+				</select>
+			</div>
+			<div class="sidebar-setting">
+				<label for="max-tokens">Max Tokens</label>
+				<input type="range" name="max-tokens" id="max-tokens" value="4000" min="1" max="8000" step="1" class="sidebar-input">
+				<span id="max-tokens-value">4000</span>
+			</div>
+			<div class="sidebar-setting">
+				<label for="max-contexts">Max Contexts</label>
+				<input type="range" name="max-contexts" id="max-contexts" value="10" min="1" max="20" step="1" class="sidebar-input">
+				<span id="max-contexts-value">10</span>
+			</div>
+		</div>
+		
+		<div class="chat-container">
+			<div id="chat-container-GPT-messages" class="chat-container-messages-container">
+			</div>
+			<div class="chat-container-input">
+				<div class="chat-container-input-text">
+					<textarea name="message-send-GPT" id="message-send-GPT" rows="1" cols="30"></textarea>
+					<button onclick="send()" id="send-button">&#9650;</button>
+					<button onclick="streamStop()" id="stop-button">&#9632;</button>
+				</div>
+				<div class="chat-container-input-image">
+					<div class="image-send-GPT" id="image-send-GPT"></div>
+					<input type="file" accept="image/*" multiple id="image-load-button"></button>
+				</div>
+			</div>
+		</div>
+	
+		<div class="chat-record-sidebar">
+			<button class="new-chat-button" onclick="newChat()">New Chat</button>
+			<div id="record-container-GPT" class="record-container"></div>
+		</div>
+	</div>
+
+	<div class="config-container" id="config-container">
+		<svg 
+		xmlns="http://www.w3.org/2000/svg"
+		xmlns:xlink="http://www.w3.org/1999/xlink"
+		viewBox="-10 -10 1024 1024" >
+			<path fill-rule="evenodd"  fill="rgb(255, 255, 255)"
+			d="M999.000,590.372 L863.690,590.372 C854.525,628.849 839.344,664.989 819.186,697.744 L906.776,785.334 C915.160,793.718 915.160,807.311 906.776,815.695 L815.695,906.776 C807.311,915.160 793.718,915.160 785.334,906.776 L697.744,819.186 C664.989,839.344 628.849,854.525 590.372,863.690 L590.372,999.000 C590.372,1004.523 585.895,1009.000 580.372,1009.000 L428.628,1009.000 C423.105,1009.000 418.628,1004.523 418.628,999.000 L418.628,863.690 C380.151,854.525 344.011,839.344 311.256,819.186 L223.666,906.776 C215.282,915.160 201.689,915.160 193.305,906.776 L102.224,815.695 C93.840,807.311 93.840,793.718 102.224,785.334 L189.814,697.744 C169.656,664.989 154.475,628.849 145.310,590.372 L10.000,590.372 C4.477,590.372 -0.000,585.895 -0.000,580.372 L-0.000,428.628 C-0.000,423.105 4.477,418.628 10.000,418.628 L145.310,418.628 C154.475,380.151 169.656,344.011 189.814,311.256 L102.224,223.666 C93.840,215.282 93.840,201.689 102.224,193.305 L193.305,102.224 C201.689,93.840 215.282,93.840 223.666,102.224 L311.256,189.814 C344.011,169.656 380.151,154.475 418.628,145.310 L418.628,10.000 C418.628,4.477 423.105,-0.000 428.628,-0.000 L580.372,-0.000 C585.895,-0.000 590.372,4.477 590.372,10.000 L590.372,145.310 C628.849,154.475 664.989,169.656 697.744,189.814 L785.334,102.224 C793.718,93.840 807.311,93.840 815.695,102.224 L906.776,193.305 C915.160,201.689 915.160,215.282 906.776,223.666 L819.186,311.256 C839.344,344.011 854.525,380.151 863.690,418.628 L999.000,418.628 C1004.523,418.628 1009.000,423.105 1009.000,428.628 L1009.000,580.372 C1009.000,585.895 1004.523,590.372 999.000,590.372 ZM504.500,298.406 C390.678,298.406 298.406,390.678 298.406,504.500 C298.406,618.322 390.678,710.594 504.500,710.594 C618.322,710.594 710.594,618.322 710.594,504.500 C710.594,390.678 618.322,298.406 504.500,298.406 Z"/>
+		</svg>
+		<div class="config-container-content">
+			<div class="config-tabs">
+				<button class="config-tab-button active" onclick="configOpenTab(event, 'config-tab-content-source')">Source</button>
+				<button class="config-tab-button" onclick="configOpenTab(event, 'config-tab-content-function')">Function</button>
+				<button class="config-tab-button" onclick="configOpenTab(event, 'config-tab-content-system')">System</button>
+			</div>
+			<div class="config-tab-contents">
+				<div id="config-tab-content-source" class="config-tab-content">
+					<div class="config-tab-content-part">
+						<label for="config-source-GPT">GPT Source</label>
+						<input name="config-source-GPT" type="text" id="config-source-GPT">
+						<label for="config-apikey-GPT">API key</label>
+						<input name="config-apikey-GPT" type="password" id="config-apikey-GPT">
+					</div>
+					<div class="config-tab-content-part">
+						<label for="config-source-deepseek">Deepseek Source</label>
+						<input name="config-source-deepseek" type="text" id="config-source-deepseek">
+						<label for="config-apikey-deepseek">API key</label>
+						<input name="config-apikey-deepseek" type="password" id="config-apikey-deepseek">
+					</div>
+					<div class="config-tab-content-part">
+						<label for="config-cx-google-search">Google Search Engine</label>
+						<input name="config-cx-google-search" type="text" id="config-cx-google-search">
+						<label for="config-apikey-google-search">API key</label>
+						<input name="config-apikey-google-search" type="password" id="config-apikey-google-search">
+					</div>
+				</div>
+				<div id="config-tab-content-function" class="config-tab-content" style="display: none;">
+					<div class="config-tab-content-part">
+						<label for="config-proxy-url">Proxy Url
+							<label class="switch">
+								<input type="checkbox" name="config-use-proxy" id="config-use-proxy">
+								<span></span>
+							</label>
+						</label>
+						<input name="config-proxy-url" type="text" id="config-proxy-url">
+					</div>
+					<div class="config-tab-content-part">
+						<label for="config-chat-search-GPT">Chat Search
+							<label class="switch">
+								<input type="checkbox" name="config-use-chat-search-GPT" id="config-use-chat-search-GPT" checked>
+								<span></span>
+							</label>
+						</label>
+						<div id="config-chat-search-GPT">
+							<label for="config-chat-search-GPT-wiki">Wiki
+								<label class="switch">
+									<input type="checkbox" name="config-use-chat-search-GPT-wiki" id="config-use-chat-search-GPT-wiki" checked>
+									<span></span>
+								</label>
+							</label>
+							<label for="config-chat-search-GPT-baidu">Baidu
+								<label class="switch">
+									<input type="checkbox" name="config-use-chat-search-GPT-baidu" id="config-use-chat-search-GPT-baidu" checked>
+									<span></span>
+								</label>
+							</label>
+							<label for="config-chat-search-GPT-zhihu">Zhihu
+								<label class="switch">
+									<input type="checkbox" name="config-use-chat-search-GPT-zhihu" id="config-use-chat-search-GPT-zhihu" checked>
+									<span></span>
+								</label>
+							</label>
+						</div>
+					</div>
+				</div>
+				<div id="config-tab-content-system" class="config-tab-content" style="display: none;">
+					<div class="config-tab-content-part">
+						<label for="config-system-prompt-GPT">
+							Global System Prompt
+							<label class="switch">
+								<input type="checkbox" name="config-use-global-system-prompt" id="config-use-global-system-prompt" checked>
+								<span></span>
+							</label>
+						</label>
+						<textarea name="config-system-prompt-GPT" id="config-system-prompt-GPT" type="text"></textarea>
+					</div>
+				</div>
+			</div>
+			<div class="config-buttons">
+				<button class="config-button" id="s" onclick="configSave()">&#9660;</button>		
+				<button class="config-button" id="l" onclick="configLoad()">&#9650;</button>			
+			</div>
+		</div>
+	</div>
+	
+	<script type="module" src="js/GPT-main.js"></script>
+	<script type="module" src="js/configEvent.js"></script>
+	<script src="js/GPT-input_event.js"></script>
+</body>
+</html>

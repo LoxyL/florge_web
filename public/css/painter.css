@@ -1,0 +1,32 @@
+@font-face {
+  font-family: 'Broadway';
+  src: url('../fonts/Broadway\ Regular.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Berlin Sans FB';
+  src: url('../fonts/BRLNSR.TTF') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Bauhaus 93';
+  src: url('../fonts/Bauhaus\ 93.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+body {
+  font-family: "Microsoft YaHei";
+  background-color: #121212;
+  color: #ffffff;
+  height: 100vh;
+  overflow-y: hidden;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: row;
+}
