@@ -2,6 +2,8 @@ import {DialogGPT} from './dialogGPT.js';
 
 window.isInteracting = false;
 const dialog = new DialogGPT();
+window.dialog = dialog; // Keep for HTML onclicks
+export { dialog }; // Export for other modules
 
 function send() {
     if(isInteracting) return;

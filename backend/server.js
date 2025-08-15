@@ -1,11 +1,88 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const fsPromises = fs.promises;
 const bodyParser = require('body-parser');
 const {SearchWiki} = require('./search.js');
 
 function computeStringSizeMB(str) {
-    return new Blob([str]).size;
+    return Buffer.byteLength(str, 'utf8');
+}
+
+async function handleStreamWrite(filePath, req, res, recordId = null) {
+    return new Promise((resolve, reject) => {
+        const writeStream = fs.createWriteStream(filePath);
+        let dataSize = 0;
+
+        writeStream.on('error', (err) => {
+            const idStr = recordId ? ` ${recordId}` : '';
+            console.log(`Error saving Record${idStr}:`, err);
+            if (!res.headersSent) {
+                res.status(500).send(`Error saving Record${idStr}`);
+            }
+            reject(err);
+        });
+
+        writeStream.on('finish', () => {
+            const idStr = recordId ? `_${recordId}` : '_list';
+            if (!res.headersSent) {
+                res.send('Done saving Records');
+            }
+            console.log(`Save record${idStr}[${dataSize/1024/1024}MB]`);
+            resolve();
+        });
+
+        if (req.body && (Object.keys(req.body).length > 0 || Array.isArray(req.body))) {
+            const data = JSON.stringify(req.body);
+            dataSize = Buffer.byteLength(data, 'utf8');
+            writeStream.write(data);
+            writeStream.end();
+        } else {
+            req.pipe(writeStream);
+            req.on('data', (chunk) => {
+                dataSize += chunk.length;
+            });
+        }
+    });
+}
+
+async function handleStreamRead(filePath, res, recordId = null) {
+    try {
+        await fsPromises.access(filePath); // Check if file exists.
+        res.setHeader('Content-Type', 'application/json');
+        
+        const readStream = fs.createReadStream(filePath);
+        let dataSize = 0;
+        
+        readStream.on('error', (err) => {
+            const idStr = recordId ? ` "${recordId}"` : '';
+            console.log(`Error reading Records${idStr}:`, err);
+            if (!res.headersSent) {
+                return res.status(500).send(`Error reading Records${idStr}`);
+            }
+            res.end();
+        });
+
+        readStream.on('data', (chunk) => {
+            dataSize += chunk.length;
+        });
+        
+        readStream.on('end', () => {
+            const idStr = recordId ? `_${recordId}` : '_list';
+            console.log(`Load record${idStr}[${dataSize/1024/1024}MB]`);
+        });
+        
+        readStream.pipe(res);
+    } catch (err) {
+        if (err.code === 'ENOENT') {
+            const idStr = recordId ? ` "${recordId}"` : '';
+            console.log(`Record file${idStr} not found.`);
+            return res.status(404).json({ error: `Record${idStr} not found` });
+        }
+        const idStr = recordId ? ` "${recordId}"` : '';
+        console.error(`Error accessing record file${idStr}:`, err);
+        res.status(500).send(`Error accessing record file${idStr}`);
+    }
 }
 
 const app = express();
@@ -23,211 +100,94 @@ server.on('error', (err) => {
     console.error('Error starting server:', err);
 });
 
-app.post('/config', (req, res) => {
+app.post('/config', async (req, res) => {
     const config = req.body;
     const filePath = path.join(__dirname, '..', 'config.json');
 
-    fs.writeFile(filePath, JSON.stringify(config), (err) => {
-        if (err) {
-            return res.status(500).send('Error saving Configurations');
-        }
+    try {
+        await fsPromises.writeFile(filePath, JSON.stringify(config));
         res.send(`Done saving Configurations.`);
         console.log(`Save configurations[${computeStringSizeMB(JSON.stringify(config))/1024/1024}MB]`);
-    });
+    } catch (err) {
+        res.status(500).send('Error saving Configurations');
+    }
 })
 
-app.get('/config', (req, res) => {
+app.get('/config', async (req, res) => {
     const filePath = path.join(__dirname, '..', 'config.json');
 
-    if(!fs.existsSync(filePath)){
-        console.log("No config file.")
-        return res.json(undefined);
-    }
-
-    fs.readFile(filePath, 'utf8', (err, config) => {
-        if (err) {
-            return res.status(500).send('Error reading Configurations');
+    try {
+        if (!fs.existsSync(filePath)) { // existsSync is not in fs.promises, so we keep it as is.
+            console.log("No config file.")
+            return res.json({}); // Return an empty object for graceful handling on client
         }
+
+        const config = await fsPromises.readFile(filePath, 'utf8');
         res.json(JSON.parse(config));
         console.log(`Load configurations[${computeStringSizeMB(JSON.stringify(config))/1024/1024}MB]`);
-    });
-})
-
-app.post('/gpt/record', (req, res) => {
-    const filePath = path.join(__dirname, '..', 'data', 'gpt', 'record_list.json');
-
-    fs.stat(path.join(__dirname, '..', 'data', 'gpt'), (err, stat) => {
-        if(err){
-            if(err.code === 'ENOENT'){
-                console.log("No path ../data/gpt");
-            }
-            fs.mkdir(path.join(__dirname, '..', 'data'), { recursive: true }, (err) => {
-                if(err){
-                    console.log("Error creating directory ../data");
-                    return res.status(500).send('Error creating directories');
-                }
-                fs.mkdir(path.join(__dirname, '..', 'data', 'gpt'), (err) => {
-                    if(err){
-                        console.log("Error creating directory ../data/gpt");
-                        return res.status(500).send('Error creating directories');
-                    }
-                    handleStreamWrite();
-                });
-            });
-        } else {
-            handleStreamWrite();
-        }
-    });
-
-    function handleStreamWrite() {
-        const writeStream = fs.createWriteStream(filePath);
-        let dataSize = 0;
-        
-        writeStream.on('error', (err) => {
-            console.log('Error saving Records:', err);
-            return res.status(500).send('Error saving Records');
-        });
-        
-        writeStream.on('finish', () => {
-            res.send('Done saving Records');
-            console.log(`Save record_list[${dataSize/1024/1024}MB]`);
-        });
-        
-        if (req.body) {
-            const data = JSON.stringify(req.body);
-            dataSize = new Blob([data]).size;
-            writeStream.write(data);
-            writeStream.end();
-        } else {
-            let chunks = [];
-            req.on('data', (chunk) => {
-                chunks.push(chunk);
-                writeStream.write(chunk);
-            });
-            
-            req.on('end', () => {
-                dataSize = chunks.reduce((total, chunk) => total + chunk.length, 0);
-                writeStream.end();
-            });
-        }
+    } catch (err) {
+        res.status(500).send('Error reading Configurations');
     }
 })
 
-app.post('/gpt/record/:id', (req, res) => {
-    const id = req.params.id;
-    const filePath = path.join(__dirname, '..', 'data', 'gpt', `record_${id}.json`);
-    
-    const writeStream = fs.createWriteStream(filePath);
-    let dataSize = 0;
-    
-    writeStream.on('error', (err) => {
-        console.log(`Error saving Record ${id}:`, err);
-        return res.status(500).send(`Error saving Record ${id}`);
-    });
-    
-    writeStream.on('finish', () => {
-        res.send('Done saving Records');
-        console.log(`Save record_${id}[${dataSize/1024/1024}MB]`);
-    });
-    
-    if (req.body) {
-        const data = JSON.stringify(req.body);
-        dataSize = new Blob([data]).size;
-        writeStream.write(data);
-        writeStream.end();
-    } else {
-        let chunks = [];
-        req.on('data', (chunk) => {
-            chunks.push(chunk);
-            writeStream.write(chunk);
-        });
-        
-        req.on('end', () => {
-            dataSize = chunks.reduce((total, chunk) => total + chunk.length, 0);
-            writeStream.end();
-        });
-    }
-})
+app.post('/gpt/record', async (req, res) => {
+    const gptDataPath = path.join(__dirname, '..', 'data', 'gpt');
+    const filePath = path.join(gptDataPath, 'record_list.json');
 
-app.get('/gpt/record', (req, res) => {
-    const filePath = path.join(__dirname, '..', 'data', 'gpt', 'record_list.json');
-
-    if(!fs.existsSync(filePath)){
-        console.log("No record file.")
-        return res.json(undefined);
-    }
-
-    res.setHeader('Content-Type', 'application/json');
-    
-    const readStream = fs.createReadStream(filePath);
-    
-    readStream.on('error', (err) => {
-        console.log('Error reading Records:', err);
+    try {
+        await fsPromises.mkdir(gptDataPath, { recursive: true });
+        await handleStreamWrite(filePath, req, res);
+    } catch (err) {
+        console.error("Error handling record save:", err);
         if (!res.headersSent) {
-            return res.status(500).send('Error reading Records');
+            res.status(500).send('Error saving record');
         }
-        res.end();
-    });
-    
-    let dataSize = 0;
-    readStream.on('data', (chunk) => {
-        dataSize += chunk.length;
-    });
-    
-    readStream.on('end', () => {
-        console.log(`Load record_list[${dataSize/1024/1024}MB]`);
-    });
-    
-    readStream.pipe(res);
-})
-
-app.get('/gpt/record/:id', (req, res) => {
-    const id = req.params.id;
-    const filePath = path.join(__dirname, '..', 'data', 'gpt', `record_${id}.json`);
-
-    if(!fs.existsSync(filePath)){
-        console.log(`"record_${id}.json" not found.`)
-        return res.json(undefined);
     }
+});
 
-    res.setHeader('Content-Type', 'application/json');
-    
-    const readStream = fs.createReadStream(filePath);
-    
-    readStream.on('error', (err) => {
-        console.log(`Error reading "record_${id}.json":`, err);
+app.post('/gpt/record/:id', async (req, res) => {
+    const id = req.params.id;
+    const gptDataPath = path.join(__dirname, '..', 'data', 'gpt');
+    const filePath = path.join(gptDataPath, `record_${id}.json`);
+
+    try {
+        await fsPromises.mkdir(gptDataPath, { recursive: true });
+        await handleStreamWrite(filePath, req, res, id);
+    } catch (err) {
+        console.error(`Error handling record ${id} save:`, err);
         if (!res.headersSent) {
-            return res.status(500).send(`Error reading "record_${id}.json"`);
+            res.status(500).send(`Error saving record ${id}`);
         }
-        res.end();
-    });
-    
-    let dataSize = 0;
-    readStream.on('data', (chunk) => {
-        dataSize += chunk.length;
-    });
-    
-    readStream.on('end', () => {
-        console.log(`Load record_${id}[${dataSize/1024/1024}MB]`);
-    });
-    
-    readStream.pipe(res);
+    }
+});
+
+app.get('/gpt/record', async (req, res) => {
+    const filePath = path.join(__dirname, '..', 'data', 'gpt', 'record_list.json');
+    await handleStreamRead(filePath, res);
 })
 
-app.get('/gpt/record_remove/:id', (req, res) => {
+app.get('/gpt/record/:id', async (req, res) => {
+    const id = req.params.id;
+    const filePath = path.join(__dirname, '..', 'data', 'gpt', `record_${id}.json`);
+    await handleStreamRead(filePath, res, id);
+})
+
+app.get('/gpt/record_remove/:id', async (req, res) => {
     const id = req.params.id;
     const filePath = path.join(__dirname, '..', 'data', 'gpt', `record_${id}.json`);
 
-    if(!fs.existsSync(filePath)){
-        console.log(`"record_${id}.json" not found.`)
-        return res.json(undefined);
-    }
-
-    fs.unlink(filePath, (err) => {
-        if (err) {
-            return res.status(500).send(`Error reading "record_${id}.json"`);
+    try {
+        await fsPromises.access(filePath); // Check if file exists
+        await fsPromises.unlink(filePath);
+        res.json({ message: `Record ${id} deleted successfully.` });
+    } catch (err) {
+        if (err.code === 'ENOENT') {
+            console.log(`"record_${id}.json" not found for deletion.`);
+            return res.status(404).json({ error: `Record ${id} not found.` });
         }
-    });
+        console.error(`Error deleting "record_${id}.json":`, err);
+        res.status(500).json({ error: `Error deleting "record_${id}.json"` });
+    }
 })
 
 app.post('/gpt/search/wiki', async (req, res) => {
@@ -254,9 +214,6 @@ app.post('/gpt/search/wiki', async (req, res) => {
         res.end();
     } catch (error) {
         console.error('Error during search:', error);
-        if (error instanceof SomeSpecificError) {
-            return res.status(500).json({ error: 'A specific error occurred' });
-        }
         res.status(500).json({ error: 'Internal server error' });
     }
 });

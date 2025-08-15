@@ -4,9 +4,8 @@ export class DialogGPT {
 	constructor() {
 		this.useGlobalSystemPrompt = false;
 		this.dialog_num = 0;
-		this.bot = new BotGPT();
-		this.dialog_num++;
-		this.agent = new AgentGPT();
+		this.bot = null; // Will be initialized after config is loaded
+		this.agent = null; // Will be initialized after config is loaded
 		this.current_record_id = 0;
 		this.useAgent = true;
 		this.ctrlPressed = false;
@@ -21,11 +20,29 @@ export class DialogGPT {
 		this.loadSidebarSettings();
 		this.addSidebarEventListeners();
 		
+		// This will be called from configEvent.js after configs are loaded.
+		// this._updateModelConfig(document.getElementById('model-GPT').value);
+		// console.log("[INFO]Initial model set to:", document.getElementById('model-GPT').value);
+	}
+
+	initializeBots(config) {
+		this.bot = new BotGPT({
+			url: config.urlGPT,
+			apiKey: config.apikeyGPT,
+			model: document.getElementById('model-GPT').value
+		});
+		this.agent = new AgentGPT({
+			url: config.urlGPT,
+			apiKey: config.apikeyGPT
+			// Agent model is often fixed or configured separately
+		});
+		console.log("[INFO] Bot and Agent initialized.");
 		this._updateModelConfig(document.getElementById('model-GPT').value);
-		console.log("[INFO]Initial model set to:", document.getElementById('model-GPT').value);
 	}
 
 	_updateModelConfig(modelName) {
+		if (!this.bot) return; // Don't run if bot is not initialized
+
 		if(modelName === 'deepseek-ai/DeepSeek-V3' || modelName === 'deepseek-ai/DeepSeek-R1') {
 			const urlDeepseek = document.getElementById('config-source-deepseek').value;
 			const apikeyDeepseek = document.getElementById('config-apikey-deepseek').value;
@@ -102,26 +119,24 @@ export class DialogGPT {
 		const globalSystemPromptSwitch = document.getElementById("config-use-global-system-prompt");
 
 		globalSystemPromptSwitch.addEventListener("change", () => {
-            if (globalSystemPromptSwitch.checked) {
-				const globalSystemSet = document.getElementById("chat-container-GPT-messages-global-system");
-
-				this.useGlobalSystemPrompt = true;
-				this.bot.useSystemPrompt = true;
-				globalSystemSet.style.display = 'flex';
-                console.log('[INFO][CONFIG]Enable global system prompt.');
-            } else {
-				const globalSystemSet = document.getElementById("chat-container-GPT-messages-global-system");
-
-				this.useGlobalSystemPrompt = false;
-				this.bot.useSystemPrompt = false;
-				globalSystemSet.style.display = 'none';
-                console.log('[INFO][CONFIG]Disable global system prompt.');
-            }
+            const useSystemPrompt = globalSystemPromptSwitch.checked;
+            const systemPrompt = document.getElementById("config-system-prompt-GPT").value;
+            const maxTokens = Number(document.getElementById("max-tokens").value);
+            
+            this.useGlobalSystemPrompt = useSystemPrompt;
+            this.bot.updateParameters({ useSystemPrompt, systemPrompt, maxTokens });
+            
+            const globalSystemSet = document.getElementById("chat-container-GPT-messages-global-system");
+            globalSystemSet.style.display = useSystemPrompt ? 'flex' : 'none';
+            
+            console.log(`[INFO][CONFIG]Global system prompt ${useSystemPrompt ? 'enabled' : 'disabled'}.`);
 		})
 
 		if(globalSystemPromptSwitch.checked) {
 			this.useGlobalSystemPrompt = true;
-			this.bot.useSystemPrompt = true;
+            if (this.bot) {
+                this.bot.updateParameters({ useSystemPrompt: true });
+            }
 		}
 	}
 
@@ -184,8 +199,18 @@ export class DialogGPT {
 		this.dialog_num = 0;
 		const container = document.getElementById('chat-container-GPT-messages');
 		container.innerHTML = '';
-		this.bot = new BotGPT();
-		this._updateModelConfig(document.getElementById('model-GPT').value);
+		if (this.bot) {
+			this.bot.clearHistory();
+			const config = {
+				url: document.getElementById('config-source-GPT').value,
+				apiKey: document.getElementById('config-apikey-GPT').value,
+				model: document.getElementById('model-GPT').value
+			};
+			// Re-initializing bot is not ideal, let's just clear history.
+			// A better approach would be a full state management solution.
+			// For now, we ensure the config is up-to-date.
+			this.bot.setConfig(config);
+		}
 		this.dialog_num++;
 	}
 
@@ -520,6 +545,7 @@ export class DialogGPT {
 	}
 
 	streamStop() {
+		if (!this.bot) return; // Add guard clause to prevent error if bot is not initialized
 		this.bot.streamAbort();
 	}
 
@@ -804,6 +830,12 @@ export class DialogGPT {
 	}
 
 	async send() {
+		if (!this.bot || !this.agent) {
+			console.warn("Attempted to send a message before bots were initialized.");
+			alert("Application is still loading, please wait a moment and try again.");
+			return;
+		}
+
 		const useChatSearch = document.getElementById('config-use-chat-search-GPT').checked;
 
 		let inputValue = this._getInputGPT();
@@ -1024,7 +1056,8 @@ export class DialogGPT {
 	}
 
 	async _saveRecordContent() {
-		let context = JSON.parse(JSON.stringify(this.bot.body.messages));
+		if (!this.bot) return;
+		let context = JSON.parse(JSON.stringify(this.bot.messages));
 		context.shift();
 		await this._saveRecordData(context);
 	}
@@ -1071,7 +1104,9 @@ export class DialogGPT {
 	async _loadRecordContent() {
 		this._clear();
 		let recordContents = await this._getRecordData();
-		this.bot.body.messages.push(...recordContents);
+		if (this.bot && recordContents) {
+			this.bot.messages.push(...recordContents);
+		}
 
 		const chatContainer = document.getElementById("chat-container-GPT-messages");
 
@@ -1178,7 +1213,7 @@ export class DialogGPT {
 	}
 
 	async _nameRecord() {
-		if(this.useAgent){
+		if(this.useAgent && this.bot){
 			const systemPrompt = "Provide an appropriate title based on the user\'s JSON-formatted conversation records. The title should not exceed 20 words and should be returned directly. Return the content in the primary language of the conversation.";
 
 			const recordList = await this._getRecordList();
