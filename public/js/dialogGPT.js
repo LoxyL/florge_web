@@ -402,19 +402,6 @@ export class DialogGPT {
 		});
 	}
 
-	_bubbleInteractAll() {
-		const botBubbles = document.querySelectorAll('.chat-container-GPT-messages-bot-bubble');
-		const userBubbles = document.querySelectorAll('.chat-container-GPT-messages-user-bubble');
-
-		botBubbles.forEach(bubble => {
-			this._botBubbleInteract(bubble);
-		});
-
-		userBubbles.forEach(bubble => {
-			this._userBubbleInteract(bubble);
-		});
-	}
-
 	_createUserMessageElement(id, content) {
 		const userSet = document.createElement("div");
 		userSet.setAttribute("id", `chat-container-GPT-messages-user-${id}`);
@@ -1163,8 +1150,6 @@ export class DialogGPT {
 			chatContainer.scrollTop = chatContainer.scrollHeight;
 			this.dialog_num += 1;
 		}
-
-		this._bubbleInteractAll();
 	}
 
 	async _nameRecord() {
