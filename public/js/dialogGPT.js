@@ -394,8 +394,8 @@ export class DialogGPT {
 		})
 	}
 
-	_codeInteractAll() {
-		const codeBlocks = document.querySelectorAll('code');
+	_codeInteractIn(element) {
+		const codeBlocks = element.querySelectorAll('code');
 		
 		codeBlocks.forEach(block => {
 			this._codeInteract(block);
@@ -484,6 +484,7 @@ export class DialogGPT {
 		botBubble.appendChild(rawContainer);
 
 		this._botBubbleInteract(botBubble);
+		this._codeInteractIn(botBubble);
 		return botSet;
 	}
 
@@ -582,7 +583,7 @@ export class DialogGPT {
 				{left: "$", right: "$", display: false}
 			]
 		});
-		this._codeInteractAll();
+		this._codeInteractIn(botBubble);
 
 		const rawContainer = document.createElement('pre');
 		rawContainer.setAttribute("id", "raw-message");
@@ -941,7 +942,7 @@ export class DialogGPT {
 				{left: "$", right: "$", display: false}
 			]
 		});
-		this._codeInteractAll();
+		this._codeInteractIn(botBubble);
 
 		const rawContainer = document.createElement('pre');
 		rawContainer.setAttribute("id", "raw-message");
@@ -1158,13 +1159,11 @@ export class DialogGPT {
 				localSystemSet.appendChild(localSystemBubble);
 				chatContainer.appendChild(localSystemSet);
 			}
-			this._codeInteractAll();
 
 			chatContainer.scrollTop = chatContainer.scrollHeight;
 			this.dialog_num += 1;
 		}
 
-		this._codeInteractAll();
 		this._bubbleInteractAll();
 	}
 
