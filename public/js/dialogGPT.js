@@ -557,7 +557,8 @@ export class DialogGPT {
 		for await (const piece of contentIter) {
 			if (piece == undefined) continue;
 			receive_content += piece;
-			streamDisplay.textContent = receive_content;
+			// streamDisplay.textContent = receive_content;
+			botBubble.innerHTML = this._processTextDisplay(receive_content);
 			chatContainer.scrollTop = chatContainer.scrollHeight;
 		}
 
