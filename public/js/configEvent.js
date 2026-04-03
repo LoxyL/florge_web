@@ -18,20 +18,23 @@ function configContainerInit(){
 
 
 async function configSave() {
-    config.urlGPT = document.getElementById('config-source-GPT').value;
-    config.apikeyGPT = document.getElementById('config-apikey-GPT').value;
-    config.urlDeepseek = document.getElementById('config-source-deepseek').value;
-    config.apikeyDeepseek = document.getElementById('config-apikey-deepseek').value;
-    config.cxGoogleSearch = document.getElementById('config-cx-google-search').value;
-    config.apikeyGoogleSearch = document.getElementById('config-apikey-google-search').value;
-    config.systemPromptGPT = document.getElementById('config-system-prompt-GPT').value;
-    config.useGlobalSystemPrompt = document.getElementById('config-use-global-system-prompt').checked;
-    config.useProxy = document.getElementById('config-use-proxy').checked;
-    config.proxyUrl = document.getElementById('config-proxy-url').value;
-    config.useChatSearchGPT = document.getElementById('config-use-chat-search-GPT').checked;
-    config.useChatSearchWiki = document.getElementById('config-use-chat-search-GPT-wiki').checked;
-    config.useChatSearchBaidu = document.getElementById('config-use-chat-search-GPT-baidu').checked;
-    config.useChatSearchZhihu = document.getElementById('config-use-chat-search-GPT-zhihu').checked;
+    config.urlGPT = document.getElementById('config-source-GPT') ? document.getElementById('config-source-GPT').value : config.urlGPT;
+    config.apikeyGPT = document.getElementById('config-apikey-GPT') ? document.getElementById('config-apikey-GPT').value : config.apikeyGPT;
+    config.urlDeepseek = document.getElementById('config-source-deepseek') ? document.getElementById('config-source-deepseek').value : config.urlDeepseek;
+    config.apikeyDeepseek = document.getElementById('config-apikey-deepseek') ? document.getElementById('config-apikey-deepseek').value : config.apikeyDeepseek;
+    // Painter config
+    config.urlPainter = document.getElementById('config-source-painter') ? document.getElementById('config-source-painter').value : config.urlPainter || "https://api.openai-hk.com";
+    config.apikeyPainter = document.getElementById('config-apikey-painter') ? document.getElementById('config-apikey-painter').value : config.apikeyPainter;
+    config.cxGoogleSearch = document.getElementById('config-cx-google-search') ? document.getElementById('config-cx-google-search').value : config.cxGoogleSearch;
+    config.apikeyGoogleSearch = document.getElementById('config-apikey-google-search') ? document.getElementById('config-apikey-google-search').value : config.apikeyGoogleSearch;
+    config.systemPromptGPT = document.getElementById('config-system-prompt-GPT') ? document.getElementById('config-system-prompt-GPT').value : config.systemPromptGPT;
+    config.useGlobalSystemPrompt = document.getElementById('config-use-global-system-prompt') ? document.getElementById('config-use-global-system-prompt').checked : config.useGlobalSystemPrompt;
+    config.useProxy = document.getElementById('config-use-proxy') ? document.getElementById('config-use-proxy').checked : config.useProxy;
+    config.proxyUrl = document.getElementById('config-proxy-url') ? document.getElementById('config-proxy-url').value : config.proxyUrl;
+    config.useChatSearchGPT = document.getElementById('config-use-chat-search-GPT') ? document.getElementById('config-use-chat-search-GPT').checked : config.useChatSearchGPT;
+    config.useChatSearchWiki = document.getElementById('config-use-chat-search-GPT-wiki') ? document.getElementById('config-use-chat-search-GPT-wiki').checked : config.useChatSearchWiki;
+    config.useChatSearchBaidu = document.getElementById('config-use-chat-search-GPT-baidu') ? document.getElementById('config-use-chat-search-GPT-baidu').checked : config.useChatSearchBaidu;
+    config.useChatSearchZhihu = document.getElementById('config-use-chat-search-GPT-zhihu') ? document.getElementById('config-use-chat-search-GPT-zhihu').checked : config.useChatSearchZhihu;
 
     try {
         const response = await fetch('/config', {
@@ -56,24 +59,26 @@ async function configLoad() {
 
         config = loadedConfig;
 
-        document.getElementById('config-source-GPT').value = config.urlGPT || '';
-        document.getElementById('config-apikey-GPT').value = config.apikeyGPT || '';
-        document.getElementById('config-source-deepseek').value = config.urlDeepseek || '';
-        document.getElementById('config-apikey-deepseek').value = config.apikeyDeepseek || '';
-        document.getElementById('config-cx-google-search').value = config.cxGoogleSearch || '';
-        document.getElementById('config-apikey-google-search').value = config.apikeyGoogleSearch || '';
-        document.getElementById('config-system-prompt-GPT').value = config.systemPromptGPT || '';
-        document.getElementById('config-use-global-system-prompt').checked = config.useGlobalSystemPrompt || false;
-        document.getElementById('config-use-proxy').checked = config.useProxy || false;
-        document.getElementById('config-proxy-url').value = config.proxyUrl || '';
+        if (document.getElementById('config-source-GPT')) document.getElementById('config-source-GPT').value = config.urlGPT || '';
+        if (document.getElementById('config-apikey-GPT')) document.getElementById('config-apikey-GPT').value = config.apikeyGPT || '';
+        if (document.getElementById('config-source-deepseek')) document.getElementById('config-source-deepseek').value = config.urlDeepseek || '';
+        if (document.getElementById('config-apikey-deepseek')) document.getElementById('config-apikey-deepseek').value = config.apikeyDeepseek || '';
+        if (document.getElementById('config-source-painter')) document.getElementById('config-source-painter').value = config.urlPainter || 'https://api.openai-hk.com';
+        if (document.getElementById('config-apikey-painter')) document.getElementById('config-apikey-painter').value = config.apikeyPainter || '';
+        if (document.getElementById('config-cx-google-search')) document.getElementById('config-cx-google-search').value = config.cxGoogleSearch || '';
+        if (document.getElementById('config-apikey-google-search')) document.getElementById('config-apikey-google-search').value = config.apikeyGoogleSearch || '';
+        if (document.getElementById('config-system-prompt-GPT')) document.getElementById('config-system-prompt-GPT').value = config.systemPromptGPT || '';
+        if (document.getElementById('config-use-global-system-prompt')) document.getElementById('config-use-global-system-prompt').checked = config.useGlobalSystemPrompt || false;
+        if (document.getElementById('config-use-proxy')) document.getElementById('config-use-proxy').checked = config.useProxy || false;
+        if (document.getElementById('config-proxy-url')) document.getElementById('config-proxy-url').value = config.proxyUrl || '';
         
-        document.getElementById('config-use-chat-search-GPT').checked = config.useChatSearchGPT || false;
-        document.getElementById('config-use-chat-search-GPT-wiki').checked = config.useChatSearchWiki || false;
-        document.getElementById('config-use-chat-search-GPT-baidu').checked = config.useChatSearchBaidu || false;
-        document.getElementById('config-use-chat-search-GPT-zhihu').checked = config.useChatSearchZhihu || false;
+        if (document.getElementById('config-use-chat-search-GPT')) document.getElementById('config-use-chat-search-GPT').checked = config.useChatSearchGPT || false;
+        if (document.getElementById('config-use-chat-search-GPT-wiki')) document.getElementById('config-use-chat-search-GPT-wiki').checked = config.useChatSearchWiki || false;
+        if (document.getElementById('config-use-chat-search-GPT-baidu')) document.getElementById('config-use-chat-search-GPT-baidu').checked = config.useChatSearchBaidu || false;
+        if (document.getElementById('config-use-chat-search-GPT-zhihu')) document.getElementById('config-use-chat-search-GPT-zhihu').checked = config.useChatSearchZhihu || false;
 
         // Initialize bots after loading config
-        if (dialog) {
+        if (dialog && document.getElementById('model-GPT')) {
             dialog.initializeBots();
         }
 

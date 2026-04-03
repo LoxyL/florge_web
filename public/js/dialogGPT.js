@@ -29,17 +29,20 @@ export class DialogGPT {
 	}
 
 	initializeBots() {
+		const modelSelect = document.getElementById('model-GPT');
+		if (!modelSelect) return; // Prevent errors on Painter page
+
 		this.bot = new BotGPT({
 			url: config.urlGPT,
 			apiKey: config.apikeyGPT,
-			model: document.getElementById('model-GPT').value
+			model: modelSelect.value
 		});
 		this.agent = new AgentGPT({
 			url: config.urlGPT,
 			apiKey: config.apikeyGPT
 		});
 		console.log("[INFO] Bot and Agent initialized.");
-		this._updateModelConfig(document.getElementById('model-GPT').value);
+		this._updateModelConfig(modelSelect.value);
 	}
 
 	_updateModelConfig(modelName) {
@@ -63,7 +66,10 @@ export class DialogGPT {
 	}
 
 	_imageLoadInteract() {
-		document.getElementById("image-load-button").addEventListener('change', (event) => {
+		const imageLoadButton = document.getElementById("image-load-button");
+		if (!imageLoadButton) return;
+		
+		imageLoadButton.addEventListener('change', (event) => {
 			const files = event.target.files;
 			const imageContainer = document.getElementById('image-send-GPT');
 			imageContainer.innerHTML = '';
@@ -83,24 +89,27 @@ export class DialogGPT {
 			}
 		})
 
-		document.getElementById("message-send-GPT").addEventListener('paste', (event) => {
-			const imageContainer = document.getElementById('image-send-GPT');
-			const items = (event.clipboardData || event.originalEvent.clipboardData).items;
-			for (const item of items) {
-				if (item.type.indexOf("image/") !== -1) {
-					const blob = item.getAsFile();
-					const reader = new FileReader();
-					reader.onload = (eve) => {
-						const img = document.createElement("img");
-						img.src = eve.target.result;
-						img.style.width = "200px";
-						imageContainer.appendChild(img);
-						this.image_buffer.push(eve.target.result);
+		const messageSend = document.getElementById("message-send-GPT");
+		if (messageSend) {
+			messageSend.addEventListener('paste', (event) => {
+				const imageContainer = document.getElementById('image-send-GPT');
+				const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+				for (const item of items) {
+					if (item.type.indexOf("image/") !== -1) {
+						const blob = item.getAsFile();
+						const reader = new FileReader();
+						reader.onload = (eve) => {
+							const img = document.createElement("img");
+							img.src = eve.target.result;
+							img.style.width = "200px";
+							imageContainer.appendChild(img);
+							this.image_buffer.push(eve.target.result);
+						}
+						reader.readAsDataURL(blob);
 					}
-					reader.readAsDataURL(blob);
 				}
-			}
-        })
+			});
+		}
 	}
 
 	_windowInteract() {
@@ -118,16 +127,19 @@ export class DialogGPT {
 	_switchInteract() {
 		const globalSystemPromptSwitch = document.getElementById("config-use-global-system-prompt");
 
+		if (!globalSystemPromptSwitch) return;
+
 		globalSystemPromptSwitch.addEventListener("change", () => {
             const useSystemPrompt = globalSystemPromptSwitch.checked;
             const systemPrompt = config.systemPromptGPT;
-            const maxTokens = Number(document.getElementById("max-tokens").value);
+            const maxTokensEle = document.getElementById("max-tokens");
+            const maxTokens = maxTokensEle ? Number(maxTokensEle.value) : 4000;
             
             this.useGlobalSystemPrompt = useSystemPrompt;
             this.bot.updateParameters({ useSystemPrompt, systemPrompt, maxTokens });
             
             const globalSystemSet = document.getElementById("chat-container-GPT-messages-global-system");
-            globalSystemSet.style.display = useSystemPrompt ? 'flex' : 'none';
+            if (globalSystemSet) globalSystemSet.style.display = useSystemPrompt ? 'flex' : 'none';
             
             console.log(`[INFO][CONFIG]Global system prompt ${useSystemPrompt ? 'enabled' : 'disabled'}.`);
 		})
@@ -142,6 +154,8 @@ export class DialogGPT {
 
 	_modelSelectInteract() {
 		const modelSelect = document.getElementById('model-GPT');
+		if (!modelSelect) return;
+		
 		modelSelect.addEventListener('change', () => {
 			const selectedModel = modelSelect.value;
 			this._updateModelConfig(selectedModel);
@@ -198,13 +212,14 @@ export class DialogGPT {
 	_clear() {
 		this.dialog_num = 0;
 		const container = document.getElementById('chat-container-GPT-messages');
-		container.innerHTML = '';
+		if (container) container.innerHTML = '';
 		if (this.bot) {
 			this.bot.clearHistory();
+			const modelSelect = document.getElementById('model-GPT');
 			const botConfig = {
 				url: config.urlGPT,
 				apiKey: config.apikeyGPT,
-				model: document.getElementById('model-GPT').value
+				model: modelSelect ? modelSelect.value : 'gpt-4o'
 			};
 			this.bot.setConfig(botConfig);
 		}
@@ -1035,6 +1050,8 @@ export class DialogGPT {
 		this.current_record_id = recordList.recordIds[0];
 
 		const recordContainer = document.getElementById('record-container-GPT');
+		if (!recordContainer) return; // Prevent errors on Painter page
+
 		recordContainer.innerHTML = '';
 		for(let i=0; i<recordList.recordIds.length; i++){
 			let newRecord = document.createElement('button');
@@ -1090,12 +1107,14 @@ export class DialogGPT {
 			this._loadRecordContent();
 
 			const options = document.getElementsByClassName('record-option');
+			if (!options) return;
+
 			for(let i=0; i<options.length; i++){
 				options[i].className = options[i].className.replace(' active', '');
 			}
 
 			const option = document.getElementById(`record-GPT-${id}`);
-			option.className += ' active';
+			if (option) option.className += ' active';
 		} catch (error) {
 			this._loadRecordList();
 		}
@@ -1109,14 +1128,18 @@ export class DialogGPT {
 		}
 
 		const chatContainer = document.getElementById("chat-container-GPT-messages");
+		if (!chatContainer) return; // Prevent errors on Painter page
 
 		const globalSystemSet = document.createElement("div");
 		globalSystemSet.setAttribute("id", 'chat-container-GPT-messages-global-system');
 		globalSystemSet.setAttribute("class", "chat-container-GPT-messages-global-system");
 		
+		const systemPromptInput = document.getElementById("config-system-prompt-GPT");
+		const systemPromptText = systemPromptInput ? systemPromptInput.value : '';
+		
 		const globalSystemBubble = document.createElement("div");
 		globalSystemBubble.setAttribute("class", "chat-container-GPT-messages-global-system-bubble");
-		globalSystemBubble.innerHTML = `<label>Global System</label><pre>${document.getElementById("config-system-prompt-GPT").value}</pre>`;
+		globalSystemBubble.innerHTML = `<label>Global System</label><pre>${systemPromptText}</pre>`;
 
 		globalSystemSet.appendChild(globalSystemBubble);
 		chatContainer.appendChild(globalSystemSet);
@@ -1181,32 +1204,51 @@ export class DialogGPT {
 	}
 
 	loadSidebarSettings() {
-		if (localStorage.getItem('model-GPT')) {
-			document.getElementById('model-GPT').value = localStorage.getItem('model-GPT');
+		const modelSelect = document.getElementById('model-GPT');
+		if (modelSelect && localStorage.getItem('model-GPT')) {
+			modelSelect.value = localStorage.getItem('model-GPT');
 		}
 		
-		if (localStorage.getItem('max-tokens')) {
-			document.getElementById('max-tokens').value = localStorage.getItem('max-tokens');
-			document.getElementById("max-tokens-value").innerHTML = document.getElementById('max-tokens').value;
+		const maxTokens = document.getElementById('max-tokens');
+		const maxTokensValue = document.getElementById("max-tokens-value");
+		if (maxTokens && maxTokensValue && localStorage.getItem('max-tokens')) {
+			maxTokens.value = localStorage.getItem('max-tokens');
+			maxTokensValue.innerHTML = maxTokens.value;
 		}
 
-		if (localStorage.getItem('max-contexts')) {
-			document.getElementById('max-contexts').value = localStorage.getItem('max-contexts');
-			document.getElementById("max-contexts-value").innerHTML = document.getElementById('max-contexts').value;
+		const maxContexts = document.getElementById('max-contexts');
+		const maxContextsValue = document.getElementById("max-contexts-value");
+		if (maxContexts && maxContextsValue && localStorage.getItem('max-contexts')) {
+			maxContexts.value = localStorage.getItem('max-contexts');
+			maxContextsValue.innerHTML = maxContexts.value;
 		}
 	}
 
 	saveSidebarSettings() {
-		localStorage.setItem('model-GPT', document.getElementById('model-GPT').value);
-		localStorage.setItem('max-tokens', document.getElementById('max-tokens').value);
-		document.getElementById("max-tokens-value").innerHTML = document.getElementById('max-tokens').value;
-		localStorage.setItem('max-contexts', document.getElementById('max-contexts').value);
-		document.getElementById("max-contexts-value").innerHTML = document.getElementById('max-contexts').value;
+		const modelSelect = document.getElementById('model-GPT');
+		if (modelSelect) localStorage.setItem('model-GPT', modelSelect.value);
+		
+		const maxTokens = document.getElementById('max-tokens');
+		if (maxTokens) {
+			localStorage.setItem('max-tokens', maxTokens.value);
+			document.getElementById("max-tokens-value").innerHTML = maxTokens.value;
+		}
+		
+		const maxContexts = document.getElementById('max-contexts');
+		if (maxContexts) {
+			localStorage.setItem('max-contexts', maxContexts.value);
+			document.getElementById("max-contexts-value").innerHTML = maxContexts.value;
+		}
 	}
 
 	addSidebarEventListeners() {
-		document.getElementById('model-GPT').addEventListener('change', () => this.saveSidebarSettings());
-		document.getElementById('max-tokens').addEventListener('input', () => this.saveSidebarSettings());
-		document.getElementById('max-contexts').addEventListener('input', () => this.saveSidebarSettings());
+		const modelSelect = document.getElementById('model-GPT');
+		if (modelSelect) modelSelect.addEventListener('change', () => this.saveSidebarSettings());
+		
+		const maxTokens = document.getElementById('max-tokens');
+		if (maxTokens) maxTokens.addEventListener('input', () => this.saveSidebarSettings());
+		
+		const maxContexts = document.getElementById('max-contexts');
+		if (maxContexts) maxContexts.addEventListener('input', () => this.saveSidebarSettings());
 	}
 }

@@ -9,6 +9,21 @@ function computeStringSizeMB(str) {
     return Buffer.byteLength(str, 'utf8');
 }
 
+function normalizePainterApiUrl(apiUrl) {
+    if (!apiUrl) return '';
+
+    const trimmedUrl = apiUrl.trim();
+    if (trimmedUrl.endsWith('/v1/images/generations')) {
+        return trimmedUrl;
+    }
+
+    if (trimmedUrl.endsWith('/')) {
+        return `${trimmedUrl}v1/images/generations`;
+    }
+
+    return `${trimmedUrl}/v1/images/generations`;
+}
+
 async function handleStreamWrite(filePath, req, res, recordId = null) {
     return new Promise((resolve, reject) => {
         const writeStream = fs.createWriteStream(filePath);
@@ -215,5 +230,152 @@ app.post('/gpt/search/wiki', async (req, res) => {
     } catch (error) {
         console.error('Error during search:', error);
         res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.post('/gpt/painter', async (req, res) => {
+    try {
+        const { apiUrl, apiKey, ...payload } = req.body;
+
+        if (!apiUrl || !apiKey) {
+            return res.status(400).json({ error: 'Missing apiUrl or apiKey' });
+        }
+
+        // --- Handle local file paths as reference images ---
+        // If the payload contains an image parameter that is a local path, read it and convert to base64
+        const fs = require('fs');
+        const path = require('path');
+        
+        for (const key of ['image', 'image_url']) {
+            let refImg = payload[key];
+            if (refImg && typeof refImg === 'string') {
+                // If it's a relative local URL like ./painter_images/xxx
+                if (refImg.startsWith('./painter_images/')) {
+                    try {
+                        const localImagePath = path.join(__dirname, '..', 'public', refImg.replace('./', ''));
+                        if (fs.existsSync(localImagePath)) {
+                            const fileBuffer = fs.readFileSync(localImagePath);
+                            payload[key] = `data:image/png;base64,${fileBuffer.toString('base64')}`;
+                            console.log(`[INFO][PAINTER] Converted local relative reference image to base64`);
+                        }
+                    } catch (readErr) {
+                        console.error('[ERROR][PAINTER] Failed to read local reference image:', readErr);
+                    }
+                } 
+                // If it's a full localhost URL from drag-and-drop (e.g. http://localhost:30962/painter_images/xxx)
+                else if (refImg.includes('/painter_images/')) {
+                    try {
+                        const fileNameMatch = refImg.match(/\/painter_images\/(.+)$/);
+                        if (fileNameMatch && fileNameMatch[1]) {
+                            const localImagePath = path.join(__dirname, '..', 'public', 'painter_images', fileNameMatch[1]);
+                            if (fs.existsSync(localImagePath)) {
+                                const fileBuffer = fs.readFileSync(localImagePath);
+                                payload[key] = `data:image/png;base64,${fileBuffer.toString('base64')}`;
+                                console.log(`[INFO][PAINTER] Converted local full URL reference image to base64`);
+                            }
+                        }
+                    } catch (readErr) {
+                        console.error('[ERROR][PAINTER] Failed to read local full URL reference image:', readErr);
+                    }
+                }
+            }
+        }
+
+        const requestUrl = normalizePainterApiUrl(apiUrl);
+        console.log('[INFO][PAINTER] Forwarding request:', {
+            originalApiUrl: apiUrl,
+            requestUrl,
+            model: payload.model,
+            size: payload.size,
+            promptPreview: typeof payload.prompt === 'string' ? payload.prompt.slice(0, 80) : ''
+        });
+
+        const response = await fetch(requestUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const rawText = await response.text();
+        let data;
+
+        try {
+            data = rawText ? JSON.parse(rawText) : {};
+        } catch (parseError) {
+            console.error('Painter API returned non-JSON response:', rawText.slice(0, 300));
+            return res.status(502).json({
+                error: 'Painter API did not return JSON. Please check the API URL.',
+                requestUrl
+            });
+        }
+
+        if (!response.ok) {
+            console.log('[INFO][PAINTER] Upstream error:', {
+                status: response.status,
+                requestUrl,
+                model: payload.model,
+                response: data
+            });
+            return res.status(response.status).json(data);
+        }
+
+        console.log('[INFO][PAINTER] Upstream success:', {
+            status: response.status,
+            requestUrl,
+            model: payload.model
+        });
+        
+        // --- Try to save image locally to prevent dead links ---
+        try {
+            const fs = require('fs');
+            const path = require('path');
+            const painterImagesDir = path.join(__dirname, '..', 'public', 'painter_images');
+            if (!fs.existsSync(painterImagesDir)) {
+                fs.mkdirSync(painterImagesDir, { recursive: true });
+            }
+
+            const firstItem = Array.isArray(data?.data) ? data.data[0] : null;
+            let imageUrl = firstItem?.url || firstItem?.image_url || firstItem?.imageUrl || data?.output?.[0]?.url || data?.output?.[0]?.image_url;
+            let b64Data = firstItem?.b64_json || firstItem?.b64 || data?.output?.[0]?.b64_json;
+
+            if (imageUrl && !b64Data) {
+                // If it's a URL, download it
+                const imgRes = await fetch(imageUrl);
+                if (imgRes.ok) {
+                    const arrayBuffer = await imgRes.arrayBuffer();
+                    b64Data = Buffer.from(arrayBuffer).toString('base64');
+                }
+            }
+
+            if (b64Data) {
+                const fileName = `img_${Date.now()}_${Math.floor(Math.random() * 1000)}.png`;
+                const filePath = path.join(painterImagesDir, fileName);
+                fs.writeFileSync(filePath, Buffer.from(b64Data, 'base64'));
+                
+                // Override the response to return the local URL instead
+                if (firstItem) {
+                    firstItem.url = `./painter_images/${fileName}`;
+                    firstItem.b64_json = undefined;
+                    firstItem.b64 = undefined;
+                } else if (data?.output?.[0]) {
+                    data.output[0].url = `./painter_images/${fileName}`;
+                    data.output[0].b64_json = undefined;
+                } else if (!data.data) {
+                    data.data = [{ url: `./painter_images/${fileName}` }];
+                }
+                console.log(`[INFO][PAINTER] Image saved locally: ${fileName}`);
+            }
+        } catch (saveErr) {
+            console.error('[ERROR][PAINTER] Failed to save image locally:', saveErr);
+            // Ignore error and just return original data if we fail to save locally
+        }
+
+        res.json(data);
+    } catch (error) {
+        console.error('Error proxying painter request:', error);
+        res.status(500).json({ error: 'Internal server error proxying to painter API' });
     }
 });

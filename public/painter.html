@@ -7,5 +7,106 @@
 	<link rel="stylesheet" href="./css/painter.css">
 </head>
 <body>
+	<div class="GPT-window">
+		<div class="sidebar">
+			<a href="index.html" class="sidebar-title">
+				Florge
+			</a>
+			<div class="sidebar-setting">
+				<label for="model-painter">Model</label>
+				<select name="model-painter" id="model-painter" class="sidebar-select">
+					<option value="gemini-3.1-flash-image-preview">Banana 2</option>
+					<option value="dall-e-3">DALL-E 3</option>
+					<option value="gpt-image-1">GPT Image 1</option>
+				</select>
+			</div>
+			<div class="sidebar-setting">
+				<label for="image-ratio">Ratio</label>
+				<select name="image-ratio" id="image-ratio" class="sidebar-select">
+					<option value="1:1">1:1 Square</option>
+					<option value="16:9">16:9 Widescreen</option>
+					<option value="9:16">9:16 Portrait</option>
+					<option value="4:3">4:3 Standard</option>
+					<option value="3:4">3:4 Vertical</option>
+				</select>
+			</div>
+			<div class="sidebar-setting">
+				<label for="image-quality">Quality</label>
+				<select name="image-quality" id="image-quality" class="sidebar-select">
+					<option value="1024">1k (Fast)</option>
+					<option value="2048">2k (HD)</option>
+					<option value="4096">4k (Ultra)</option>
+				</select>
+			</div>
+		</div>
+		
+		<div class="painter-main">
+			<div id="images-container" class="painter-images-grid">
+				<!-- Generated images will appear here -->
+			</div>
+			
+			<div class="painter-input-area">
+				<div class="painter-input-wrapper" id="painter-input-wrapper">
+					<div id="loading-indicator" class="loading-indicator">
+						<div class="spinner"></div> <span>Generating image...</span>
+					</div>
+					<div class="painter-upload-btn" onclick="document.getElementById('image-upload').click()">
+						<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+					</div>
+					<input type="file" id="image-upload" accept="image/*" multiple style="display: none;">
+					<div class="painter-input-content">
+						<div id="image-previews" class="image-previews-container"></div>
+						<textarea id="prompt-input" rows="1" placeholder="Describe the image or drop reference images..."></textarea>
+					</div>
+					<button id="send-button" onclick="generateImage()">
+						<svg viewBox="0 0 24 24" width="20" height="20" fill="white"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>
+					</button>
+					<div id="drag-overlay" class="drag-overlay">Drop images to use as reference</div>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- Lightbox Modal -->
+	<div id="lightbox" class="lightbox" onclick="closeLightbox()">
+		<div class="lightbox-content-wrapper">
+			<img id="lightbox-img" src="" alt="Enlarged Image">
+			<div id="lightbox-caption" class="lightbox-caption"></div>
+		</div>
+	</div>
+
+	<!-- Config Modal -->
+	<div class="config-container" id="config-container">
+		<svg viewBox="0 0 24 24" width="24" height="24">
+			<path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.06-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.73,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.06,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.43-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.49-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/>
+		</svg>
+		<div class="config-container-content">
+			<div class="config-tabs">
+				<button class="config-tab-button active" onclick="configOpenTab(event, 'config-tab-content-source')">API Configuration</button>
+			</div>
+			<div class="config-tab-contents">
+				<div id="config-tab-content-source" class="config-tab-content" style="display: flex;">
+					<div class="config-tab-content-part">
+						<label for="config-source-painter">API Endpoint (URL)</label>
+						<input name="config-source-painter" type="text" id="config-source-painter" placeholder="https://api.openai-hk.com">
+						
+						<label for="config-apikey-painter">Secret API Key</label>
+						<input name="config-apikey-painter" type="password" id="config-apikey-painter" placeholder="sk-...">
+					</div>
+				</div>
+			</div>
+			<div class="config-buttons">
+				<button class="config-button" id="l" onclick="configLoad()">
+					<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="margin-right: 6px;"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg> Load
+				</button>
+				<button class="config-button" id="s" onclick="configSave()">
+					<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="margin-right: 6px;"><path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg> Save
+				</button>
+			</div>
+		</div>
+	</div>
+	
+	<script type="module" src="js/configEvent.js"></script>
+	<script type="module" src="js/painter.js"></script>
 </body>
 </html>
