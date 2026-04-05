@@ -133,17 +133,15 @@ body {
   position: relative;
 }
 
-/* Images Grid */
+/* Images Grid - Masonry Layout */
 .painter-images-grid {
   flex: 1;
   width: 100%;
   padding: 30px 40px 120px 40px; /* Extra bottom padding for input bar */
   overflow-y: auto;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  grid-auto-rows: max-content;
-  gap: 30px;
-  align-items: start;
+  column-count: auto;
+  column-width: 280px;
+  column-gap: 30px;
   box-sizing: border-box;
 }
 
@@ -170,6 +168,8 @@ body {
   transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   cursor: pointer;
   border: 1px solid rgba(255, 255, 255, 0.03);
+  break-inside: avoid;
+  margin-bottom: 30px;
 }
 
 .image-card:hover {
@@ -504,23 +504,68 @@ body {
   transform: translateX(-50%) translateY(10px);
   background: rgba(11, 107, 75, 0.9);
   color: white;
-  padding: 8px 20px;
+  padding: 0;
   border-radius: 20px;
   font-size: 13px;
   font-family: 'Berlin Sans FB';
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  width: 170px;
+  height: 36px;
   backdrop-filter: blur(4px);
   box-shadow: 0 4px 15px rgba(0,0,0,0.3);
   opacity: 0;
   transition: all 0.3s ease;
   pointer-events: none;
+  cursor: pointer;
+  overflow: hidden;
 }
 
 .loading-indicator.visible {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+  pointer-events: auto; /* Make it clickable when visible */
+}
+
+.loading-indicator .loading-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  transition: opacity 0.3s ease;
+}
+
+.loading-indicator::after {
+  content: 'Cancel Generation';
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  font-weight: bold;
+}
+
+.loading-indicator:hover {
+  background: rgba(220, 53, 69, 0.9); /* Red color to indicate cancel */
+}
+
+.loading-indicator:hover .loading-content {
+  opacity: 0;
+}
+
+.loading-indicator:hover::after {
+  opacity: 1;
+}
+
+.loading-indicator:active {
+  transform: translateX(-50%) translateY(2px);
 }
 
 .spinner {

@@ -1,6 +1,7 @@
 import { config } from './configEvent.js';
 
 let isGenerating = false;
+let currentAbortController = null;
 let painterImages = [];
 let referenceImages = [];
 
@@ -258,11 +259,13 @@ async function generateImage() {
     }
 
     isGenerating = true;
+    currentAbortController = new AbortController();
     const btn = document.getElementById('send-button');
     const loading = document.getElementById('loading-indicator');
     
     btn.disabled = true;
     loading.classList.add('visible');
+    loading.onclick = cancelGeneration;
 
     try {
         const requestPayload = {
@@ -284,7 +287,8 @@ async function generateImage() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(requestPayload)
+            body: JSON.stringify(requestPayload),
+            signal: currentAbortController.signal
         });
 
         if (!response.ok) {
@@ -294,7 +298,9 @@ async function generateImage() {
 
         const data = await response.json();
         
-        if (data.data && data.data.length > 0) {
+        const hasData = (data.data && data.data.length > 0) || (data.output && data.output.length > 0);
+        
+        if (hasData) {
             const imageUrl = extractImageUrl(data);
             
             const newImageData = {
@@ -322,12 +328,24 @@ async function generateImage() {
         }
 
     } catch (error) {
-        console.error('Error generating image:', error);
-        alert(`Error: ${error.message}`);
+        if (error.name === 'AbortError') {
+            console.log('Image generation cancelled by user.');
+        } else {
+            console.error('Error generating image:', error);
+            alert(`Error: ${error.message}`);
+        }
     } finally {
         isGenerating = false;
+        currentAbortController = null;
         btn.disabled = false;
         loading.classList.remove('visible');
+        loading.onclick = null;
+    }
+}
+
+function cancelGeneration() {
+    if (isGenerating && currentAbortController) {
+        currentAbortController.abort();
     }
 }
 
