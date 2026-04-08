@@ -4,6 +4,7 @@ let isGenerating = false;
 let currentAbortController = null;
 let painterImages = [];
 let referenceImages = [];
+let activeReferenceUploads = 0;
 
 document.addEventListener('DOMContentLoaded', () => {
     // Load existing images from local storage
@@ -101,13 +102,22 @@ function setupDragAndDrop() {
     wrapper.addEventListener('drop', (e) => {
         const files = e.dataTransfer.files;
         if (files && files.length > 0) {
-            handleFiles(files);
+            void handleFiles(files);
         } else {
             const dataUrl = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
             if (dataUrl) {
                 const urlClean = dataUrl.trim();
-                if (urlClean.startsWith('data:image') || urlClean.startsWith('http')) {
-                    addReferenceImage(urlClean);
+                if (urlClean.startsWith('data:image')) {
+                    void uploadReferenceDataUrl(urlClean);
+                } else if (
+                    urlClean.startsWith('http') ||
+                    urlClean.startsWith('./painter_images/') ||
+                    urlClean.startsWith('./painter_uploads/')
+                ) {
+                    addReferenceImage({
+                        previewUrl: urlClean,
+                        serverPath: urlClean
+                    });
                 }
             }
         }
@@ -123,29 +133,75 @@ function setupDragAndDrop() {
             }
         }
         if (files.length > 0) {
-            handleFiles(files);
+            void handleFiles(files);
         }
     });
 }
 
 function handleFileUpload(e) {
-    handleFiles(e.target.files);
+    void handleFiles(e.target.files);
     e.target.value = ''; // Reset
 }
 
-function handleFiles(files) {
-    Array.from(files).forEach(file => {
-        if (!file.type.startsWith('image/')) return;
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            addReferenceImage(e.target.result);
-        };
-        reader.readAsDataURL(file);
-    });
+async function handleFiles(files) {
+    for (const file of Array.from(files)) {
+        if (!file.type.startsWith('image/')) continue;
+
+        try {
+            const uploadedImage = await uploadReferenceFile(file);
+            addReferenceImage(uploadedImage);
+        } catch (error) {
+            console.error('Failed to upload reference image:', error);
+            alert(`Failed to upload reference image: ${error.message}`);
+        }
+    }
 }
 
-function addReferenceImage(dataUrl) {
-    referenceImages.push(dataUrl);
+async function uploadReferenceFile(file) {
+    activeReferenceUploads += 1;
+
+    try {
+        const formData = new FormData();
+        formData.append('image', file);
+
+        const response = await fetch('/gpt/painter/upload', {
+            method: 'POST',
+            body: formData
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || `HTTP error! status: ${response.status}`);
+        }
+
+        return {
+            previewUrl: data.url,
+            serverPath: data.path || data.url,
+            originalName: data.originalName || file.name
+        };
+    } finally {
+        activeReferenceUploads = Math.max(0, activeReferenceUploads - 1);
+    }
+}
+
+async function uploadReferenceDataUrl(dataUrl) {
+    try {
+        const response = await fetch(dataUrl);
+        const blob = await response.blob();
+        const extension = (blob.type && blob.type.split('/')[1]) || 'png';
+        const file = new File([blob], `pasted-image.${extension}`, {
+            type: blob.type || 'image/png'
+        });
+        const uploadedImage = await uploadReferenceFile(file);
+        addReferenceImage(uploadedImage);
+    } catch (error) {
+        console.error('Failed to upload dropped image data:', error);
+        alert(`Failed to upload dropped image: ${error.message}`);
+    }
+}
+
+function addReferenceImage(referenceImage) {
+    referenceImages.push(referenceImage);
     renderReferenceImages();
 }
 
@@ -157,12 +213,12 @@ function removeReferenceImage(index) {
 function renderReferenceImages() {
     const container = document.getElementById('image-previews');
     container.innerHTML = '';
-    referenceImages.forEach((dataUrl, idx) => {
+    referenceImages.forEach((referenceImage, idx) => {
         const item = document.createElement('div');
         item.className = 'image-preview-item';
         
         const img = document.createElement('img');
-        img.src = dataUrl;
+        img.src = referenceImage.previewUrl || referenceImage.serverPath;
         
         const delBtn = document.createElement('button');
         delBtn.className = 'image-preview-delete';
@@ -235,6 +291,10 @@ function renderAllImages() {
 
 async function generateImage() {
     if (isGenerating) return;
+    if (activeReferenceUploads > 0) {
+        alert('Reference image is still uploading. Please wait a moment and try again.');
+        return;
+    }
 
     const promptInput = document.getElementById('prompt-input');
     const prompt = promptInput.value.trim();
@@ -278,8 +338,9 @@ async function generateImage() {
         };
         
         if (referenceImages.length > 0) {
-            requestPayload.image = referenceImages[0]; // Try standard param
-            requestPayload.image_url = referenceImages[0]; // Fallback param
+            const referenceImage = referenceImages[0];
+            requestPayload.image = referenceImage.serverPath; // Try standard param
+            requestPayload.image_url = referenceImage.serverPath; // Fallback param
         }
 
         const response = await fetch('/gpt/painter', {

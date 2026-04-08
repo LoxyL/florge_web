@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const fsPromises = fs.promises;
 const bodyParser = require('body-parser');
+const multer = require('multer');
 const {SearchWiki} = require('./search.js');
 
 function computeStringSizeMB(str) {
@@ -22,6 +23,37 @@ function normalizePainterApiUrl(apiUrl) {
     }
 
     return `${trimmedUrl}/v1/images/generations`;
+}
+
+function getPainterReferenceMimeType(filePath) {
+    const ext = path.extname(filePath).toLowerCase();
+
+    switch (ext) {
+        case '.jpg':
+        case '.jpeg':
+            return 'image/jpeg';
+        case '.webp':
+            return 'image/webp';
+        case '.gif':
+            return 'image/gif';
+        case '.bmp':
+            return 'image/bmp';
+        default:
+            return 'image/png';
+    }
+}
+
+function resolvePainterReferencePath(refImg) {
+    if (!refImg || typeof refImg !== 'string') return null;
+
+    if (refImg.startsWith('./')) {
+        return path.join(__dirname, '..', 'public', refImg.replace('./', ''));
+    }
+
+    const match = refImg.match(/\/(painter_images|painter_uploads)\/(.+)$/);
+    if (!match) return null;
+
+    return path.join(__dirname, '..', 'public', match[1], match[2]);
 }
 
 async function handleStreamWrite(filePath, req, res, recordId = null) {
@@ -102,6 +134,35 @@ async function handleStreamRead(filePath, res, recordId = null) {
 
 const app = express();
 const PORT = 30962;
+const painterUploadsDir = path.join(__dirname, '..', 'public', 'painter_uploads');
+
+fs.mkdirSync(painterUploadsDir, { recursive: true });
+
+const painterUploadStorage = multer.diskStorage({
+    destination: (_req, _file, cb) => {
+        cb(null, painterUploadsDir);
+    },
+    filename: (_req, file, cb) => {
+        const ext = path.extname(file.originalname) || '.png';
+        const uniqueName = `ref_${Date.now()}_${Math.floor(Math.random() * 1000000)}${ext}`;
+        cb(null, uniqueName);
+    }
+});
+
+const painterUpload = multer({
+    storage: painterUploadStorage,
+    limits: {
+        fileSize: 50 * 1024 * 1024
+    },
+    fileFilter: (_req, file, cb) => {
+        if (file.mimetype && file.mimetype.startsWith('image/')) {
+            cb(null, true);
+            return;
+        }
+
+        cb(new Error('Only image uploads are supported.'));
+    }
+});
 
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use(bodyParser.json({limit:'1mb'}));
@@ -233,6 +294,36 @@ app.post('/gpt/search/wiki', async (req, res) => {
     }
 });
 
+app.post('/gpt/painter/upload', (req, res) => {
+    painterUpload.single('image')(req, res, (err) => {
+        if (err) {
+            const isTooLarge = err.code === 'LIMIT_FILE_SIZE';
+            return res.status(isTooLarge ? 413 : 400).json({
+                error: isTooLarge ? 'Uploaded image is too large.' : err.message
+            });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({ error: 'Missing image file.' });
+        }
+
+        const relativeUrl = `./painter_uploads/${req.file.filename}`;
+        console.log('[INFO][PAINTER] Reference image uploaded:', {
+            fileName: req.file.filename,
+            size: req.file.size,
+            mimeType: req.file.mimetype
+        });
+
+        res.json({
+            url: relativeUrl,
+            path: relativeUrl,
+            mimeType: req.file.mimetype,
+            originalName: req.file.originalname,
+            size: req.file.size
+        });
+    });
+});
+
 app.post('/gpt/painter', async (req, res) => {
     try {
         const { apiUrl, apiKey, ...payload } = req.body;
@@ -243,40 +334,26 @@ app.post('/gpt/painter', async (req, res) => {
 
         // --- Handle local file paths as reference images ---
         // If the payload contains an image parameter that is a local path, read it and convert to base64
-        const fs = require('fs');
-        const path = require('path');
-        
         for (const key of ['image', 'image_url']) {
-            let refImg = payload[key];
+            const refImg = payload[key];
             if (refImg && typeof refImg === 'string') {
-                // If it's a relative local URL like ./painter_images/xxx
-                if (refImg.startsWith('./painter_images/')) {
-                    try {
-                        const localImagePath = path.join(__dirname, '..', 'public', refImg.replace('./', ''));
-                        if (fs.existsSync(localImagePath)) {
-                            const fileBuffer = fs.readFileSync(localImagePath);
-                            payload[key] = `data:image/png;base64,${fileBuffer.toString('base64')}`;
-                            console.log(`[INFO][PAINTER] Converted local relative reference image to base64`);
-                        }
-                    } catch (readErr) {
-                        console.error('[ERROR][PAINTER] Failed to read local reference image:', readErr);
+                const localImagePath = resolvePainterReferencePath(refImg);
+                if (!localImagePath) {
+                    continue;
+                }
+
+                try {
+                    if (fs.existsSync(localImagePath)) {
+                        const fileBuffer = fs.readFileSync(localImagePath);
+                        const mimeType = getPainterReferenceMimeType(localImagePath);
+                        payload[key] = `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
+                        console.log('[INFO][PAINTER] Converted local reference image to base64:', {
+                            key,
+                            refImg
+                        });
                     }
-                } 
-                // If it's a full localhost URL from drag-and-drop (e.g. http://localhost:30962/painter_images/xxx)
-                else if (refImg.includes('/painter_images/')) {
-                    try {
-                        const fileNameMatch = refImg.match(/\/painter_images\/(.+)$/);
-                        if (fileNameMatch && fileNameMatch[1]) {
-                            const localImagePath = path.join(__dirname, '..', 'public', 'painter_images', fileNameMatch[1]);
-                            if (fs.existsSync(localImagePath)) {
-                                const fileBuffer = fs.readFileSync(localImagePath);
-                                payload[key] = `data:image/png;base64,${fileBuffer.toString('base64')}`;
-                                console.log(`[INFO][PAINTER] Converted local full URL reference image to base64`);
-                            }
-                        }
-                    } catch (readErr) {
-                        console.error('[ERROR][PAINTER] Failed to read local full URL reference image:', readErr);
-                    }
+                } catch (readErr) {
+                    console.error('[ERROR][PAINTER] Failed to read local reference image:', readErr);
                 }
             }
         }
