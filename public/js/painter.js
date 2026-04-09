@@ -5,10 +5,10 @@ let currentAbortController = null;
 let painterImages = [];
 let referenceImages = [];
 let activeReferenceUploads = 0;
+const painterStorageKey = 'painterImages';
 
-document.addEventListener('DOMContentLoaded', () => {
-    // Load existing images from local storage
-    loadImagesFromStorage();
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadImagesFromServer();
     renderAllImages();
     loadSidebarSettings();
 
@@ -258,24 +258,106 @@ function getResolution(ratioStr, qualityBaseStr) {
     return `${w}x${h}`;
 }
 
-function loadImagesFromStorage() {
+function normalizePainterImageRecord(imageData) {
+    return {
+        id: imageData.id,
+        url: imageData.url,
+        prompt: imageData.prompt,
+        model: imageData.model,
+        size: imageData.size,
+        timestamp: imageData.timestamp
+    };
+}
+
+function getLegacyStoredImages() {
     try {
-        const stored = localStorage.getItem('painterImages');
-        if (stored) {
-            painterImages = JSON.parse(stored);
-        }
+        const stored = localStorage.getItem(painterStorageKey);
+        if (!stored) return [];
+
+        const parsed = JSON.parse(stored);
+        return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
         console.error('Failed to load painter images from local storage', e);
-        painterImages = [];
+        return [];
     }
 }
 
-function saveImagesToStorage() {
+function clearLegacyStoredImages() {
     try {
-        localStorage.setItem('painterImages', JSON.stringify(painterImages));
+        localStorage.removeItem(painterStorageKey);
     } catch (e) {
-        console.error('Failed to save painter images to local storage', e);
-        alert('Failed to save image locally (localStorage limit might be reached).');
+        console.error('Failed to clear legacy painter images from local storage', e);
+    }
+}
+
+async function loadImagesFromServer() {
+    try {
+        const response = await fetch('/gpt/painter/record');
+
+        if (response.status === 404) {
+            const legacyImages = getLegacyStoredImages();
+            painterImages = legacyImages;
+            if (legacyImages.length > 0) {
+                await saveImagesToServer();
+                clearLegacyStoredImages();
+            }
+            return;
+        }
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const loadedImages = await response.json();
+        painterImages = Array.isArray(loadedImages) ? loadedImages : [];
+
+        if (painterImages.length === 0) {
+            const legacyImages = getLegacyStoredImages();
+            if (legacyImages.length > 0) {
+                painterImages = legacyImages;
+                await saveImagesToServer();
+            }
+        }
+
+        clearLegacyStoredImages();
+    } catch (e) {
+        console.error('Failed to load painter images from server', e);
+        painterImages = getLegacyStoredImages();
+    }
+}
+
+async function saveImagesToServer() {
+    const payload = painterImages.map(normalizePainterImageRecord);
+    const response = await fetch('/gpt/painter/record', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+    }
+
+    clearLegacyStoredImages();
+}
+
+async function deletePainterAsset(url) {
+    if (!url) return;
+
+    const response = await fetch('/gpt/painter/record_remove', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ url })
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
     }
 }
 
@@ -374,7 +456,12 @@ async function generateImage() {
             };
 
             painterImages.push(newImageData);
-            saveImagesToStorage();
+            try {
+                await saveImagesToServer();
+            } catch (saveError) {
+                painterImages.pop();
+                throw new Error(`Image generated, but gallery metadata failed to save: ${saveError.message}`);
+            }
             
             const container = document.getElementById('images-container');
             container.insertBefore(createImageCard(newImageData), container.firstChild);
@@ -520,9 +607,23 @@ function createImageCard(imgData) {
     return card;
 }
 
-function deleteImage(id) {
-    painterImages = painterImages.filter(img => img.id !== id);
-    saveImagesToStorage();
+async function deleteImage(id) {
+    const imageToDelete = painterImages.find(img => img.id === id);
+    const nextImages = painterImages.filter(img => img.id !== id);
+    const previousImages = [...painterImages];
+
+    try {
+        painterImages = nextImages;
+        await saveImagesToServer();
+        await deletePainterAsset(imageToDelete?.url);
+    } catch (error) {
+        painterImages = previousImages;
+        renderAllImages();
+        console.error('Failed to delete painter image:', error);
+        alert(`Failed to delete image: ${error.message}`);
+        return;
+    }
+
     const cardElement = document.getElementById(`painter-img-${id}`);
     if (cardElement) {
         cardElement.style.opacity = '0';

@@ -56,6 +56,16 @@ function resolvePainterReferencePath(refImg) {
     return path.join(__dirname, '..', 'public', match[1], match[2]);
 }
 
+function resolvePainterAssetPath(assetUrl) {
+    if (!assetUrl || typeof assetUrl !== 'string') return null;
+
+    const match = assetUrl.match(/(?:\.\/|\/)?(painter_images)\/([^?#]+)/);
+    if (!match) return null;
+
+    const safeFileName = path.basename(match[2]);
+    return path.join(__dirname, '..', 'public', match[1], safeFileName);
+}
+
 async function handleStreamWrite(filePath, req, res, recordId = null) {
     return new Promise((resolve, reject) => {
         const writeStream = fs.createWriteStream(filePath);
@@ -135,8 +145,11 @@ async function handleStreamRead(filePath, res, recordId = null) {
 const app = express();
 const PORT = 30962;
 const painterUploadsDir = path.join(__dirname, '..', 'public', 'painter_uploads');
+const painterImagesDir = path.join(__dirname, '..', 'public', 'painter_images');
+const painterDataDir = path.join(__dirname, '..', 'data', 'painter');
 
 fs.mkdirSync(painterUploadsDir, { recursive: true });
+fs.mkdirSync(painterImagesDir, { recursive: true });
 
 const painterUploadStorage = multer.diskStorage({
     destination: (_req, _file, cb) => {
@@ -247,6 +260,47 @@ app.get('/gpt/record/:id', async (req, res) => {
     const filePath = path.join(__dirname, '..', 'data', 'gpt', `record_${id}.json`);
     await handleStreamRead(filePath, res, id);
 })
+
+app.post('/gpt/painter/record', async (req, res) => {
+    const filePath = path.join(painterDataDir, 'record_list.json');
+
+    try {
+        await fsPromises.mkdir(painterDataDir, { recursive: true });
+        await handleStreamWrite(filePath, req, res, 'painter_list');
+    } catch (err) {
+        console.error('Error handling painter record save:', err);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Error saving painter record' });
+        }
+    }
+});
+
+app.get('/gpt/painter/record', async (req, res) => {
+    const filePath = path.join(painterDataDir, 'record_list.json');
+    await handleStreamRead(filePath, res, 'painter_list');
+});
+
+app.post('/gpt/painter/record_remove', async (req, res) => {
+    const assetPath = resolvePainterAssetPath(req.body?.url);
+
+    if (!assetPath) {
+        return res.json({ message: 'No local painter asset to delete.' });
+    }
+
+    try {
+        await fsPromises.access(assetPath);
+        await fsPromises.unlink(assetPath);
+        console.log(`[INFO][PAINTER] Deleted local painter asset: ${path.basename(assetPath)}`);
+        res.json({ message: 'Painter asset deleted successfully.' });
+    } catch (err) {
+        if (err.code === 'ENOENT') {
+            return res.json({ message: 'Painter asset already removed.' });
+        }
+
+        console.error('[ERROR][PAINTER] Failed to delete local painter asset:', err);
+        res.status(500).json({ error: 'Error deleting painter asset.' });
+    }
+});
 
 app.get('/gpt/record_remove/:id', async (req, res) => {
     const id = req.params.id;
@@ -409,7 +463,6 @@ app.post('/gpt/painter', async (req, res) => {
         try {
             const fs = require('fs');
             const path = require('path');
-            const painterImagesDir = path.join(__dirname, '..', 'public', 'painter_images');
             if (!fs.existsSync(painterImagesDir)) {
                 fs.mkdirSync(painterImagesDir, { recursive: true });
             }

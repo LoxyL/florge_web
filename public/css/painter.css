@@ -24,6 +24,10 @@ body {
   background-color: #0f0f11; /* Darker, more modern background */
   color: #ffffff;
   height: 100vh;
+  width: 100vw;
+  max-width: 100vw;
+  box-sizing: border-box;
+  overflow-x: hidden;
   overflow-y: hidden;
   margin: 0;
   padding: 0;
@@ -35,7 +39,11 @@ body {
   display: flex;
   flex-direction: row;
   flex: 1;
-  min-width: none;
+  min-width: 0;
+  width: 100%;
+  max-width: 100vw;
+  box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 .sidebar {
@@ -43,6 +51,7 @@ body {
   flex-direction: column;
   align-items: center;
   width: 250px;
+  flex-shrink: 0;
   background-color: #161618; /* slightly offset from body */
   height: 100vh;
   box-sizing: border-box;
@@ -128,35 +137,45 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  min-width: 0;
+  width: 100%;
+  max-width: calc(100vw - 250px);
   box-sizing: border-box;
   background-color: transparent;
   position: relative;
+  overflow-x: hidden;
 }
 
 /* Images Grid - Masonry Layout */
-.painter-images-grid {
+.painter-images-scroll-wrapper {
   flex: 1;
   width: 100%;
-  padding: 30px 40px 120px 40px; /* Extra bottom padding for input bar */
   overflow-y: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+.painter-images-scroll-wrapper::-webkit-scrollbar {
+  width: 8px;
+}
+.painter-images-scroll-wrapper::-webkit-scrollbar-track {
+  background: transparent;
+}
+.painter-images-scroll-wrapper::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+.painter-images-scroll-wrapper::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.painter-images-grid {
+  width: 100%;
+  padding: 30px 40px 120px 40px; /* Extra bottom padding for input bar */
   column-count: auto;
   column-width: 280px;
   column-gap: 30px;
   box-sizing: border-box;
-}
-
-.painter-images-grid::-webkit-scrollbar {
-  width: 8px;
-}
-.painter-images-grid::-webkit-scrollbar-track {
-  background: transparent;
-}
-.painter-images-grid::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-}
-.painter-images-grid::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
 }
 
 .image-card {
@@ -261,6 +280,9 @@ body {
   font-family: 'Microsoft YaHei';
   max-height: 50%;
   overflow-y: auto;
+  word-wrap: break-word;
+  word-break: break-all;
+  white-space: pre-wrap;
 }
 
 .image-card-prompt::-webkit-scrollbar {
@@ -281,6 +303,9 @@ body {
   right: 0;
   display: flex;
   justify-content: center;
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-x: hidden;
   pointer-events: none; /* Let clicks pass through gradient */
   z-index: 20;
 }
@@ -294,7 +319,9 @@ body {
   align-items: flex-end;
   width: 100%;
   max-width: 800px;
+  min-width: 0;
   padding: 12px 18px;
+  box-sizing: border-box;
   box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
   pointer-events: auto; /* Re-enable clicks for input */
   transition: all 0.3s ease;
@@ -326,6 +353,7 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .image-previews-container {
