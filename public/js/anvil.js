@@ -13,12 +13,31 @@ const SECTION_ORDER = [
 
 const ENTRY_STATUSES = ['Seed', 'Draft', 'Review', 'Locked'];
 const BRAINSTORM_MODEL_OPTIONS = [
-    { value: 'gpt-4o-mini', label: 'GPT-4o-mini' },
-    { value: 'gpt-4o', label: 'GPT-4o' },
+    { value: 'gpt-5.4', label: 'gpt-5.4 — flagship' },
+    { value: 'gpt-5.4-mini', label: 'gpt-5.4-mini — fast 5.x' },
+    { value: 'gpt-5.4-nano', label: 'gpt-5.4-nano — high volume' },
+    { value: 'gpt-4.1', label: 'gpt-4.1' },
+    { value: 'gpt-4.1-mini', label: 'gpt-4.1-mini' },
+    { value: 'gpt-4.1-nano', label: 'gpt-4.1-nano' },
+    { value: 'gpt-4o', label: 'gpt-4o' },
+    { value: 'gpt-4o-mini', label: 'gpt-4o-mini — default' },
+    { value: 'o3', label: 'o3' },
+    { value: 'o3-mini', label: 'o3-mini' },
+    { value: 'o1', label: 'o1' },
     { value: 'o1-mini', label: 'o1-mini' },
-    { value: 'deepseek-chat', label: 'Deepseek Chat' },
-    { value: 'deepseek-ai/DeepSeek-V3', label: 'DeepSeek V3' },
-    { value: 'deepseek-ai/DeepSeek-R1', label: 'DeepSeek R1' }
+    { value: 'deepseek-ai/DeepSeek-V3', label: 'DeepSeek V3 (SiliconFlow id)' },
+    { value: 'deepseek-ai/DeepSeek-R1', label: 'DeepSeek R1' },
+    { value: 'deepseek-chat', label: 'deepseek-chat' },
+    { value: 'deepseek-reasoner', label: 'deepseek-reasoner' },
+    { value: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
+    { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+    { value: 'claude-3-7-sonnet-20250219', label: 'Claude 3.7 Sonnet' },
+    { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
+    { value: 'gemini-2.5-pro', label: 'gemini-2.5-pro' },
+    { value: 'gemini-2.5-flash', label: 'gemini-2.5-flash' },
+    { value: 'gemini-2.0-flash', label: 'gemini-2.0-flash' },
+    { value: 'grok-3', label: 'grok-3' },
+    { value: 'grok-3-mini', label: 'grok-3-mini' }
 ];
 
 const state = {
@@ -31,6 +50,8 @@ const state = {
     statusFilter: 'all',
     aiResult: '',
     aiContextSummary: null,
+    aiBusy: false,
+    aiBusyMessage: '',
     brainstormSessionsByWorldId: {},
     brainstormDraft: '',
     brainstormModel: 'gpt-4o-mini',
@@ -42,6 +63,8 @@ const state = {
     worldHeroAiPrompt: '',
     worldHeroAiResult: '',
     worldHeroAiLoading: false,
+    worldHeroVisualLoading: false,
+    worldHeroVisualResult: '',
     saveTimer: null,
     saveInFlight: false,
     saveQueued: false
@@ -224,7 +247,10 @@ function createEmptyEntry(sectionName, title = `New ${sectionName} Entry`) {
         tags: [],
         links: [],
         aiContextSummary: '',
-        generationPresets: {},
+        generationPresets: {
+            textPrompt: '',
+            imagePrompt: ''
+        },
         styleKeywords: [],
         createdAt: now,
         updatedAt: now
@@ -257,7 +283,8 @@ function createEmptyWorld(name) {
             label: `Created world ${name}`,
             createdAt: Date.now()
         }],
-        generationHistory: []
+        generationHistory: [],
+        worldHeroVisualPreset: { coverPrompt: '', anchorPrompt: '' }
     };
 }
 
@@ -273,7 +300,10 @@ function ensureWorldShape(world) {
                 tags: [],
                 links: [],
                 styleKeywords: [],
-                generationPresets: {},
+                generationPresets: {
+                    textPrompt: entry?.generationPresets?.textPrompt || entry?.generationPresets?.lastPrompt || '',
+                    imagePrompt: entry?.generationPresets?.imagePrompt || ''
+                },
                 ...entry,
                 section: entry.section || sectionName
             }))
@@ -286,6 +316,10 @@ function ensureWorldShape(world) {
         styleAnchors: Array.isArray(world.styleAnchors) ? world.styleAnchors : [],
         recentActivities: Array.isArray(world.recentActivities) ? world.recentActivities : [],
         generationHistory: Array.isArray(world.generationHistory) ? world.generationHistory : [],
+        worldHeroVisualPreset: {
+            coverPrompt: String(world.worldHeroVisualPreset?.coverPrompt || ''),
+            anchorPrompt: String(world.worldHeroVisualPreset?.anchorPrompt || '')
+        },
         sections
     };
 }
@@ -536,10 +570,55 @@ function deleteSelectedEntry() {
 
 function removeAnchorsForDeletedEntry(entry) {
     const entryImageIds = new Set((entry.images || []).map((image) => image.id));
-    state.currentWorld.styleAnchors = state.currentWorld.styleAnchors.filter((anchor) => !entryImageIds.has(anchor.id));
+    state.currentWorld.styleAnchors = state.currentWorld.styleAnchors.filter((anchor) => !entryImageIds.has(anchor.id) && anchor.entryId !== entry.id);
     if (entry.images?.some((image) => image.url === state.currentWorld.coverImage)) {
-        state.currentWorld.coverImage = state.currentWorld.styleAnchors[0]?.url || '';
+        state.currentWorld.coverImage = '';
     }
+}
+
+function removeWorldCover() {
+    if (!state.currentWorld || !String(state.currentWorld.coverImage || '').trim()) return;
+    state.currentWorld.coverImage = '';
+    pushActivity('Removed world cover image', 'world_cover_removed');
+    queueSaveCurrentWorld();
+    renderAll();
+}
+
+function removeWorldStyleAnchor(anchorId) {
+    if (!state.currentWorld || !anchorId) return;
+    const before = state.currentWorld.styleAnchors.length;
+    state.currentWorld.styleAnchors = state.currentWorld.styleAnchors.filter((anchor) => anchor.id !== anchorId);
+    if (state.currentWorld.styleAnchors.length === before) return;
+    pushActivity('Removed style anchor', 'anchor_removed');
+    queueSaveCurrentWorld();
+    renderAll();
+}
+
+function getEntryPrimaryImage(entry) {
+    return entry?.images?.[0]?.url || '';
+}
+
+function getWorldHeroCoverImage() {
+    // 仅显示「世界封面」字段；绝不从条目图或 style anchor 自动借用，避免任意条目的图出现在世界概览
+    return String(state.currentWorld?.coverImage || '').trim();
+}
+
+function getWorldOverviewEntry() {
+    return state.currentWorld?.sections?.World?.[0] || null;
+}
+
+function renderWorldStyleAnchorsStrip(managed) {
+    const anchors = state.currentWorld?.styleAnchors || [];
+    if (anchors.length === 0) {
+        return '<div class="muted">No style anchors yet. Generate one below or mark images from entries.</div>';
+    }
+    return anchors.map((anchor) => `
+        <div class="anchor-card ${managed ? 'anchor-card-managed' : ''}">
+            ${managed ? `<button type="button" class="anchor-remove-btn" data-remove-anchor-id="${escapeAttribute(anchor.id)}" title="Remove anchor" aria-label="Remove anchor">×</button>` : ''}
+            <img src="${escapeAttribute(anchor.url)}" alt="${escapeAttribute(anchor.label || 'Style anchor')}" data-preview-image="${escapeAttribute(anchor.url)}" data-preview-caption="${escapeAttribute(anchor.label || '')}">
+            <div class="asset-caption">${escapeHtml(anchor.label || 'Style Anchor')}</div>
+        </div>
+    `).join('');
 }
 
 function normalizeTagList(value) {
@@ -604,12 +683,53 @@ function queueSaveCurrentWorld() {
 
     state.currentWorld.updatedAt = Date.now();
     upsertWorldSummary(state.currentWorld);
+    // Do not renderAll() here — it rebuilds studio/world hero inputs and kills focus + IME composition.
     renderWorldList();
+    renderSectionList();
+    renderEntryBoard();
+    renderSectionBoardPeek(getFilteredEntries());
 
     clearTimeout(state.saveTimer);
     state.saveTimer = setTimeout(() => {
         void saveCurrentWorld();
     }, 450);
+}
+
+function setAiBusy(isBusy, message = '') {
+    state.aiBusy = isBusy;
+    state.aiBusyMessage = isBusy ? (message || 'AI is working...') : '';
+}
+
+function renderGlobalBusyOverlay() {
+    const existing = document.getElementById('anvil-ai-busy-overlay');
+    if (!state.aiBusy) {
+        existing?.remove();
+        document.body.classList.remove('anvil-ai-busy');
+        return;
+    }
+
+    document.body.classList.add('anvil-ai-busy');
+
+    if (existing) {
+        const messageNode = existing.querySelector('.anvil-ai-busy-message');
+        if (messageNode) {
+            messageNode.textContent = state.aiBusyMessage || 'AI is working...';
+        }
+        return;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'anvil-ai-busy-overlay';
+    overlay.className = 'anvil-ai-busy-overlay';
+    overlay.innerHTML = `
+        <div class="anvil-ai-busy-card" role="status" aria-live="polite" aria-busy="true">
+            <div class="anvil-ai-busy-spinner" aria-hidden="true"></div>
+            <div class="anvil-ai-busy-title">AI Generating</div>
+            <div class="anvil-ai-busy-message">${escapeHtml(state.aiBusyMessage || 'AI is working...')}</div>
+            <div class="anvil-ai-busy-subtitle">Other actions are temporarily locked to keep the world state consistent.</div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
 }
 
 async function saveCurrentWorld() {
@@ -620,6 +740,8 @@ async function saveCurrentWorld() {
     }
 
     state.saveInFlight = true;
+    const frozenPayload = JSON.parse(JSON.stringify(state.currentWorld));
+    const frozenUpdatedAt = frozenPayload.updatedAt;
 
     try {
         const response = await fetch(`/gpt/anvil/world/${encodeURIComponent(state.currentWorld.id)}`, {
@@ -627,7 +749,7 @@ async function saveCurrentWorld() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(state.currentWorld)
+            body: JSON.stringify(frozenPayload)
         });
 
         const world = await response.json().catch(() => ({}));
@@ -635,7 +757,11 @@ async function saveCurrentWorld() {
             throw new Error(world.error || `HTTP error! status: ${response.status}`);
         }
 
-        state.currentWorld = ensureWorldShape(world);
+        const normalized = ensureWorldShape(world);
+        // If the user kept editing after this payload was sent, do not clobber newer in-memory state.
+        if (state.currentWorld.updatedAt === frozenUpdatedAt) {
+            state.currentWorld = normalized;
+        }
         upsertWorldSummary(state.currentWorld);
         renderWorldList();
     } catch (error) {
@@ -656,6 +782,16 @@ function renderAll() {
     renderEntryBoard();
     renderEntryStudio();
     renderBrainstormPanel();
+    renderGlobalBusyOverlay();
+}
+
+function syncWorldHeroNameLabels() {
+    if (!dom.worldHero || !state.currentWorld) return;
+    const name = state.currentWorld.name || 'Untitled World';
+    const stripStrong = dom.worldHero.querySelector('.world-hero-strip-title strong');
+    if (stripStrong) stripStrong.textContent = name;
+    const panelH1 = dom.worldHero.querySelector('.world-meta h1');
+    if (panelH1) panelH1.textContent = name;
 }
 
 function renderSectionBoardPeek(entries = null) {
@@ -663,20 +799,17 @@ function renderSectionBoardPeek(entries = null) {
 
     if (!state.currentWorld) {
         dom.sectionBoardPeek.innerHTML = `
-            <div class="section-board-peek-grid">
-                <div class="section-board-peek-card"></div>
-                <div class="section-board-peek-card"></div>
-                <div class="section-board-peek-card"></div>
-            </div>
+            <div class="section-board-peek-empty muted">No world</div>
             <div class="section-board-peek-count">0</div>
         `;
         return;
     }
 
     const previewEntries = (entries || getFilteredEntries()).slice(0, 3);
+    const count = entries ? entries.length : getFilteredEntries().length;
     const cardsMarkup = previewEntries.length > 0
         ? previewEntries.map((entry) => {
-            const cover = entry.images?.[0]?.url || state.currentWorld.coverImage || '';
+            const cover = getEntryPrimaryImage(entry);
             return `
                 <div class="section-board-peek-card">
                     ${cover ? `<img src="${escapeAttribute(cover)}" alt="${escapeAttribute(entry.title || 'Entry')}">` : ''}
@@ -685,14 +818,14 @@ function renderSectionBoardPeek(entries = null) {
             `;
         }).join('')
         : `
-            <div class="section-board-peek-card"><div class="section-board-peek-card-label">No entries</div></div>
-            <div class="section-board-peek-card"></div>
-            <div class="section-board-peek-card"></div>
+            <div class="section-board-peek-card section-board-peek-card-empty">
+                <div class="section-board-peek-empty-label">No entries</div>
+            </div>
         `;
 
     dom.sectionBoardPeek.innerHTML = `
         <div class="section-board-peek-grid">${cardsMarkup}</div>
-        <div class="section-board-peek-count">${entries ? entries.length : getFilteredEntries().length}</div>
+        <div class="section-board-peek-count">${count}</div>
     `;
 }
 
@@ -775,15 +908,10 @@ function renderWorldHero() {
     const isExpanded = state.worldHeroExpanded;
     const legacyWorldPrompt = state.currentWorld.sections?.World?.[0]?.generationPresets?.worldPrompt;
     const worldHeroPresetPrompt = state.currentWorld.worldHeroAiPreset?.prompt || legacyWorldPrompt || '';
-    const anchorMarkup = (state.currentWorld.styleAnchors || []).length > 0
-        ? state.currentWorld.styleAnchors.map((anchor) => `
-            <div class="anchor-card">
-                <img src="${escapeAttribute(anchor.url)}" alt="${escapeAttribute(anchor.label || 'Style anchor')}" data-preview-image="${escapeAttribute(anchor.url)}" data-preview-caption="${escapeAttribute(anchor.label || '')}">
-                <div class="asset-caption">${escapeHtml(anchor.label || 'Style Anchor')}</div>
-            </div>
-        `).join('')
-        : '<div class="muted">Mark entry images as style anchors to give AI a visual memory for this world.</div>';
-
+    const visualPreset = state.currentWorld.worldHeroVisualPreset || { coverPrompt: '', anchorPrompt: '' };
+    const heroCover = getWorldHeroCoverImage();
+    const textAiBusy = state.worldHeroAiLoading || state.aiBusy;
+    const visualAiBusy = state.worldHeroVisualLoading || state.aiBusy;
     dom.worldHero.className = `world-hero ${isExpanded ? 'is-expanded' : 'is-collapsed'}`;
     dom.worldHero.innerHTML = `
         <button class="world-hero-strip" type="button" aria-expanded="${isExpanded ? 'true' : 'false'}">
@@ -822,17 +950,21 @@ function renderWorldHero() {
                     <div class="world-ai-panel">
                         <div class="ai-panel-header">
                             <div>
-                                <div class="eyebrow">World Overview AI</div>
-                                <div class="muted">Uses world summary and canon fields only — does not create or edit World entries.</div>
+                                <div class="eyebrow">World Text AI</div>
+                                <div class="muted">Text only — overview, canon and world entry fields. Cover and style anchors use the panel on the right.</div>
                             </div>
                         </div>
                         <textarea id="world-ai-prompt-input" placeholder="Example: help me turn this into a decaying oceanic empire with ritual astronomy and a strict caste system.">${escapeHtml(state.worldHeroAiPrompt || worldHeroPresetPrompt)}</textarea>
                         <div class="ai-button-row">
-                            <button class="button-primary" data-world-ai-action="summary" ${state.worldHeroAiLoading ? 'disabled' : ''}>Generate Overview</button>
-                            <button class="button-ghost" data-world-ai-action="canon-expand" ${state.worldHeroAiLoading ? 'disabled' : ''}>Expand Canon</button>
-                            <button class="button-ghost" data-world-ai-action="canon-rewrite" ${state.worldHeroAiLoading ? 'disabled' : ''}>Rewrite Canon</button>
+                            <button class="button-primary" data-world-ai-action="complete" ${textAiBusy || state.worldHeroVisualLoading ? 'disabled' : ''}>Complete World</button>
+                            <span class="ai-button-pair">
+                                <button class="button-ghost" data-world-ai-action="summary" ${textAiBusy || state.worldHeroVisualLoading ? 'disabled' : ''}>Generate Overview</button>
+                                <button class="button-ghost" data-world-ai-action="modify-world" ${textAiBusy || state.worldHeroVisualLoading ? 'disabled' : ''}>Modify Text</button>
+                            </span>
+                            <button class="button-ghost" data-world-ai-action="canon-expand" ${textAiBusy || state.worldHeroVisualLoading ? 'disabled' : ''}>Expand Canon</button>
+                            <button class="button-ghost" data-world-ai-action="canon-rewrite" ${textAiBusy || state.worldHeroVisualLoading ? 'disabled' : ''}>Rewrite Canon</button>
                         </div>
-                        <div class="ai-result-panel">${escapeHtml(state.worldHeroAiResult || 'World-level AI output will appear here. It can directly rewrite the top overview and canon fields.')}</div>
+                        <div class="ai-result-panel">${escapeHtml(state.worldHeroAiResult || 'World text AI output will appear here.')}</div>
                     </div>
 
                     <div class="hero-actions">
@@ -843,6 +975,35 @@ function renderWorldHero() {
                 </div>
 
                 <div class="world-stats">
+                    <div class="stat-card world-visual-ai-panel" style="grid-column: 1 / -1;">
+                        <div class="ai-panel-header">
+                            <div>
+                                <div class="eyebrow">World Cover & Style AI</div>
+                                <div class="muted">Separate from text AI — generate the world cover and style anchor images here.</div>
+                            </div>
+                        </div>
+                        <div class="world-cover-visual-row">
+                            <div class="world-cover-visual-thumb">
+                                ${heroCover ? `<img class="world-cover-image" src="${escapeAttribute(heroCover)}" alt="${escapeAttribute(state.currentWorld.name || 'World cover')}" data-preview-image="${escapeAttribute(heroCover)}" data-preview-caption="${escapeAttribute(state.currentWorld.name || 'World cover')}">` : '<div class="world-cover-image world-cover-image-empty">No cover</div>'}
+                            </div>
+                            <div class="world-cover-visual-actions">
+                                ${heroCover ? `<button type="button" class="button-ghost" data-world-remove-cover="true" ${visualAiBusy ? 'disabled' : ''}>Remove Cover</button>` : ''}
+                            </div>
+                        </div>
+                        <label class="eyebrow world-visual-label" for="world-cover-image-prompt">Cover image prompt</label>
+                        <textarea id="world-cover-image-prompt" placeholder="Describe the world cover (mood, composition, key motifs...)">${escapeHtml(visualPreset.coverPrompt || '')}</textarea>
+                        <div class="ai-button-row">
+                            <button type="button" class="button-primary" data-world-visual-action="cover" ${visualAiBusy || state.worldHeroAiLoading ? 'disabled' : ''}>Generate Cover</button>
+                        </div>
+                        <div class="eyebrow world-visual-label">Style anchors</div>
+                        <div class="anchor-strip anchor-strip-managed">${renderWorldStyleAnchorsStrip(true)}</div>
+                        <label class="eyebrow world-visual-label" for="world-anchor-image-prompt">Style anchor image prompt</label>
+                        <textarea id="world-anchor-image-prompt" placeholder="Describe a reference image for consistent world look (palette, line, materials...)">${escapeHtml(visualPreset.anchorPrompt || '')}</textarea>
+                        <div class="ai-button-row">
+                            <button type="button" class="button-primary" data-world-visual-action="anchor" ${visualAiBusy || state.worldHeroAiLoading ? 'disabled' : ''}>Generate Style Anchor</button>
+                        </div>
+                        <div class="ai-result-panel world-visual-result-panel">${escapeHtml(state.worldHeroVisualResult || 'Image AI status will appear here.')}</div>
+                    </div>
                     <div class="stat-card">
                         <div class="eyebrow">Entries</div>
                         <strong>${stats.entryCount}</strong>
@@ -858,10 +1019,6 @@ function renderWorldHero() {
                     <div class="stat-card">
                         <div class="eyebrow">Recent Activity</div>
                         <div class="muted">${activities.length > 0 ? escapeHtml(activities[0].label) : 'No activity yet'}</div>
-                    </div>
-                    <div class="stat-card" style="grid-column: 1 / -1;">
-                        <div class="eyebrow">Style Anchors</div>
-                        <div class="anchor-strip">${anchorMarkup}</div>
                     </div>
                 </div>
             </div>
@@ -879,7 +1036,7 @@ function renderWorldHero() {
     dom.worldHero.querySelector('#world-name-input')?.addEventListener('input', (event) => {
         state.currentWorld.name = event.target.value;
         queueSaveCurrentWorld();
-        renderWorldList();
+        syncWorldHeroNameLabels();
     });
     dom.worldHero.querySelector('#world-summary-input')?.addEventListener('input', (event) => {
         state.currentWorld.summary = event.target.value;
@@ -907,6 +1064,41 @@ function renderWorldHero() {
     dom.worldHero.querySelectorAll('[data-world-ai-action]').forEach((element) => {
         element.addEventListener('click', () => {
             void runWorldOverviewGeneration(element.dataset.worldAiAction);
+        });
+    });
+
+    dom.worldHero.querySelector('#world-cover-image-prompt')?.addEventListener('input', (event) => {
+        state.currentWorld.worldHeroVisualPreset = state.currentWorld.worldHeroVisualPreset || {};
+        state.currentWorld.worldHeroVisualPreset.coverPrompt = event.target.value;
+        queueSaveCurrentWorld();
+    });
+    dom.worldHero.querySelector('#world-anchor-image-prompt')?.addEventListener('input', (event) => {
+        state.currentWorld.worldHeroVisualPreset = state.currentWorld.worldHeroVisualPreset || {};
+        state.currentWorld.worldHeroVisualPreset.anchorPrompt = event.target.value;
+        queueSaveCurrentWorld();
+    });
+
+    dom.worldHero.querySelector('[data-world-remove-cover="true"]')?.addEventListener('click', () => {
+        if (state.aiBusy || state.worldHeroVisualLoading) return;
+        removeWorldCover();
+    });
+
+    dom.worldHero.querySelectorAll('[data-world-visual-action]').forEach((element) => {
+        element.addEventListener('click', () => {
+            const action = element.dataset.worldVisualAction;
+            if (action === 'cover') {
+                void runWorldCoverGeneration();
+            } else if (action === 'anchor') {
+                void runWorldStyleAnchorGeneration();
+            }
+        });
+    });
+
+    dom.worldHero.querySelectorAll('[data-remove-anchor-id]').forEach((element) => {
+        element.addEventListener('click', (event) => {
+            event.stopPropagation();
+            if (state.aiBusy || state.worldHeroVisualLoading) return;
+            removeWorldStyleAnchor(element.dataset.removeAnchorId);
         });
     });
 
@@ -966,11 +1158,11 @@ function renderEntryBoard() {
     renderSectionBoardPeek(entries);
 
     dom.entryBoard.innerHTML = entries.map((entry, index) => {
-        const cover = entry.images?.[0]?.url || state.currentWorld.coverImage || '';
+        const cover = getEntryPrimaryImage(entry);
         const delay = Math.min(index * 0.05, 0.4);
         return `
             <article class="entry-card ${entry.id === state.activeEntryId ? 'active' : ''}" data-entry-id="${entry.id}" style="animation-delay: ${delay}s">
-                ${cover ? `<img class="entry-card-cover" src="${escapeAttribute(cover)}" alt="${escapeAttribute(entry.title)}">` : ''}
+                ${cover ? `<img class="entry-card-cover" src="${escapeAttribute(cover)}" alt="${escapeAttribute(entry.title)}">` : '<div class="entry-card-cover entry-card-cover-empty"></div>'}
                 <div class="entry-card-header">
                     <span class="status-badge">${escapeHtml(entry.status || 'Seed')}</span>
                 </div>
@@ -1034,6 +1226,9 @@ function renderEntryStudio() {
         : '<div class="muted">Upload references or generate concept art for this entry.</div>';
 
     const aiContextMarkup = renderAiContextSummary(state.aiContextSummary);
+    const textPrompt = entry.generationPresets?.textPrompt || entry.generationPresets?.lastPrompt || '';
+    const imagePrompt = entry.generationPresets?.imagePrompt || '';
+    const isWorldOverview = entry.section === 'World';
 
     dom.studioContent.innerHTML = `
         <section class="entry-form" style="animation-delay: 0s;">
@@ -1052,6 +1247,28 @@ function renderEntryStudio() {
                 <input id="entry-style-input" type="text" value="${escapeAttribute((entry.styleKeywords || []).join(', '))}" placeholder="Style keywords, separated by commas">
             </div>
 
+            <div class="entry-text-ai-panel">
+                <div class="ai-panel-header">
+                    <div>
+                        <div class="eyebrow">Text Generation</div>
+                        <div class="muted">${isWorldOverview ? 'One click can complete the world overview entry, including summary, keywords and lore body.' : 'One click can complete this entry, including summary, tags, style keywords and main content.'}</div>
+                    </div>
+                </div>
+                <textarea id="ai-prompt-input" placeholder="Direct the writing generation. Example: redesign this city as a desert trade hub while preserving the empire's sacred geometry.">${escapeHtml(textPrompt)}</textarea>
+                <div class="ai-button-row">
+                    <button class="button-primary" data-ai-kind="text" data-ai-action="complete" ${state.aiBusy ? 'disabled' : ''}>Complete Entry</button>
+                    <span class="ai-button-pair">
+                        <button class="button-ghost" data-ai-kind="text" data-ai-action="write" ${state.aiBusy ? 'disabled' : ''}>Generate Text</button>
+                        <button class="button-ghost" data-ai-kind="text" data-ai-action="modify" ${state.aiBusy ? 'disabled' : ''}>Modify Text</button>
+                    </span>
+                    <button class="button-ghost" data-ai-kind="text" data-ai-action="expand" ${state.aiBusy ? 'disabled' : ''}>Expand</button>
+                    <button class="button-ghost" data-ai-kind="text" data-ai-action="rewrite" ${state.aiBusy ? 'disabled' : ''}>Rewrite</button>
+                    <button class="button-ghost" data-ai-kind="text" data-ai-action="align" ${state.aiBusy ? 'disabled' : ''}>Align Check</button>
+                </div>
+                ${aiContextMarkup}
+                <div class="ai-result-panel">${escapeHtml(state.aiResult || 'AI text output will appear here. “Complete Entry” will fill summary, tags, style keywords and body together.')}</div>
+            </div>
+
             <div class="eyebrow">Linked Entries</div>
             <div class="link-chip-row">
                 ${allOtherEntries.length > 0
@@ -1064,7 +1281,7 @@ function renderEntryStudio() {
             </div>
 
             <div class="hero-actions" style="margin-top: 14px;">
-                <button class="button-danger" data-delete-entry="true">Delete Entry</button>
+                <button class="button-danger" data-delete-entry="true" ${state.aiBusy ? 'disabled' : ''}>Delete Entry</button>
             </div>
         </section>
 
@@ -1072,40 +1289,29 @@ function renderEntryStudio() {
             <div class="asset-header">
                 <div>
                     <div class="eyebrow">Concept Assets</div>
-                    <div class="muted">Every image belongs to an entry. Use style anchors to teach Anvil your world's look.</div>
+                    <div class="muted">Every image belongs to this entry. Image generation is separated here from text generation.</div>
                 </div>
                 <div class="hero-actions">
-                    <button class="button-ghost" data-upload-assets="true">Upload Assets</button>
+                    <button class="button-ghost" data-upload-assets="true" ${state.aiBusy ? 'disabled' : ''}>Upload Assets</button>
                 </div>
             </div>
+
+            <div class="entry-image-ai-panel">
+                <div class="ai-panel-header">
+                    <div>
+                        <div class="eyebrow">Image Generation</div>
+                        <div class="muted">Prompts and buttons for concept art live with the image gallery, so text and image workflows stay clearly separated.</div>
+                    </div>
+                </div>
+                <textarea id="image-prompt-input" placeholder="Direct the image generation. Example: towering basalt harbor city at dusk, sacred geometry motifs, misty teal atmosphere.">${escapeHtml(imagePrompt)}</textarea>
+                <div class="ai-button-row">
+                    <button class="button-primary" data-ai-kind="image" data-ai-action="visualize" ${state.aiBusy ? 'disabled' : ''}>Generate Image</button>
+                    <button class="button-ghost" data-ai-kind="image" data-ai-action="variant" ${state.aiBusy ? 'disabled' : ''}>Image Variant</button>
+                </div>
+            </div>
+
             <input id="entry-asset-upload" type="file" accept="image/*" multiple hidden>
             <div class="asset-grid">${imagesMarkup}</div>
-        </section>
-
-        <section class="ai-panel" style="animation-delay: 0.16s;">
-            <div class="ai-panel-header">
-                <div>
-                    <div class="eyebrow">AI Create Panel</div>
-                    <div class="muted">Generate using world canon, linked entries and style anchors.</div>
-                </div>
-            </div>
-
-            <textarea id="ai-prompt-input" placeholder="Direct this generation. Example: redesign this city as a desert trade hub while preserving the empire's sacred geometry.">${escapeHtml(entry.generationPresets?.lastPrompt || '')}</textarea>
-
-            <div class="ai-button-row">
-                <button class="button-primary" data-ai-kind="text" data-ai-action="write">Generate Text</button>
-                <button class="button-ghost" data-ai-kind="text" data-ai-action="expand">Expand</button>
-                <button class="button-ghost" data-ai-kind="text" data-ai-action="rewrite">Rewrite</button>
-                <button class="button-ghost" data-ai-kind="text" data-ai-action="align">Align Check</button>
-            </div>
-
-            <div class="ai-button-row">
-                <button class="button-primary" data-ai-kind="image" data-ai-action="visualize">Generate Image</button>
-                <button class="button-ghost" data-ai-kind="image" data-ai-action="variant">Image Variant</button>
-            </div>
-
-            ${aiContextMarkup}
-            <div class="ai-result-panel">${escapeHtml(state.aiResult || 'AI output will appear here. Generated text can write, expand or rewrite the current entry. Align Check reports lore conflicts without overwriting content.')}</div>
         </section>
     `;
 
@@ -1405,7 +1611,6 @@ function bindEntryStudioEvents(entry) {
         entry.title = event.target.value;
         entry.updatedAt = Date.now();
         queueSaveCurrentWorld();
-        renderEntryBoard();
         dom.studioTitle.textContent = entry.title || 'Untitled Entry';
     });
 
@@ -1413,14 +1618,12 @@ function bindEntryStudioEvents(entry) {
         entry.status = event.target.value;
         entry.updatedAt = Date.now();
         queueSaveCurrentWorld();
-        renderEntryBoard();
     });
 
     dom.studioContent.querySelector('#entry-summary-input')?.addEventListener('input', (event) => {
         entry.summary = event.target.value;
         entry.updatedAt = Date.now();
         queueSaveCurrentWorld();
-        renderEntryBoard();
     });
 
     dom.studioContent.querySelector('#entry-content-input')?.addEventListener('input', (event) => {
@@ -1433,7 +1636,6 @@ function bindEntryStudioEvents(entry) {
         entry.tags = normalizeTagList(event.target.value);
         entry.updatedAt = Date.now();
         queueSaveCurrentWorld();
-        renderEntryBoard();
     });
 
     dom.studioContent.querySelector('#entry-style-input')?.addEventListener('input', (event) => {
@@ -1460,15 +1662,21 @@ function bindEntryStudioEvents(entry) {
 
     dom.studioContent.querySelector('[data-delete-entry="true"]')?.addEventListener('click', deleteSelectedEntry);
     dom.studioContent.querySelector('[data-upload-assets="true"]')?.addEventListener('click', () => {
+        if (state.aiBusy) return;
         dom.studioContent.querySelector('#entry-asset-upload')?.click();
     });
     dom.studioContent.querySelector('#entry-asset-upload')?.addEventListener('change', (event) => {
+        if (state.aiBusy) {
+            event.target.value = '';
+            return;
+        }
         void uploadEntryAssets(Array.from(event.target.files || []));
         event.target.value = '';
     });
 
     dom.studioContent.querySelectorAll('[data-image-action]').forEach((element) => {
         element.addEventListener('click', () => {
+            if (state.aiBusy) return;
             void handleImageAction(element.dataset.imageAction, element.dataset.imageId);
         });
     });
@@ -1481,6 +1689,7 @@ function bindEntryStudioEvents(entry) {
 
     dom.studioContent.querySelectorAll('[data-ai-kind]').forEach((element) => {
         element.addEventListener('click', () => {
+            if (state.aiBusy) return;
             const kind = element.dataset.aiKind;
             const action = element.dataset.aiAction;
             if (kind === 'text') {
@@ -1522,10 +1731,6 @@ async function uploadEntryAssets(files) {
                 source: 'upload',
                 createdAt: Date.now()
             });
-
-            if (!state.currentWorld.coverImage) {
-                state.currentWorld.coverImage = data.url;
-            }
 
             pushActivity(`Uploaded asset to ${entry.title}`, 'asset_uploaded');
             queueSaveCurrentWorld();
@@ -1583,7 +1788,7 @@ async function handleImageAction(action, imageId) {
         entry.images = entry.images.filter((candidate) => candidate.id !== image.id);
         state.currentWorld.styleAnchors = state.currentWorld.styleAnchors.filter((anchor) => anchor.id !== image.id);
         if (state.currentWorld.coverImage === image.url) {
-            state.currentWorld.coverImage = entry.images[0]?.url || state.currentWorld.styleAnchors[0]?.url || '';
+            state.currentWorld.coverImage = '';
         }
 
         try {
@@ -1650,7 +1855,7 @@ function getImageGenerationConfig() {
 }
 
 async function runWorldOverviewGeneration(mode) {
-    if (!state.currentWorld || state.worldHeroAiLoading) return;
+    if (!state.currentWorld || state.worldHeroAiLoading || state.aiBusy || state.worldHeroVisualLoading) return;
 
     const textConfig = getTextGenerationConfig();
     if (!textConfig.apiUrl || !textConfig.apiKey) {
@@ -1658,17 +1863,58 @@ async function runWorldOverviewGeneration(mode) {
         return;
     }
 
-    const userPrompt = state.worldHeroAiPrompt.trim();
+    const rawWorldPrompt = state.worldHeroAiPrompt.trim();
+    const worldModifyDefaultIntent = 'Revise the World Summary and Canon Context: improve clarity, structure, and internal consistency; keep established facts and tone unless User Intent asks otherwise or a contradiction must be fixed. If no specific direction was given, make only minimal edits.';
     state.currentWorld.worldHeroAiPreset = {
         ...(state.currentWorld.worldHeroAiPreset || {}),
-        prompt: userPrompt
+        prompt: rawWorldPrompt
     };
 
-    state.worldHeroAiLoading = true;
-    state.worldHeroAiResult = 'Generating world overview...';
-    renderWorldHero();
+    const userPromptForModifyWorld = mode === 'modify-world' && !rawWorldPrompt
+        ? worldModifyDefaultIntent
+        : rawWorldPrompt;
 
-    const action = mode === 'summary' ? 'rewrite' : mode === 'canon-expand' ? 'expand' : 'rewrite';
+    state.worldHeroAiLoading = true;
+    const busyWorld = mode === 'complete'
+        ? 'Completing world overview...'
+        : mode === 'modify-world'
+            ? 'Modifying world summary and canon...'
+            : 'Generating world overview...';
+    const previewWorld = mode === 'complete'
+        ? 'Completing world overview entry, summary, canon and keywords...'
+        : mode === 'modify-world'
+            ? 'Applying edits to world summary and canon...'
+            : 'Generating world overview...';
+    setAiBusy(true, busyWorld);
+    state.worldHeroAiResult = previewWorld;
+    renderAll();
+
+    const action = mode === 'summary'
+        ? 'rewrite'
+        : mode === 'canon-expand'
+            ? 'expand'
+            : mode === 'modify-world'
+                ? 'modify-world'
+                : 'rewrite';
+
+    const payload = {
+        apiUrl: textConfig.apiUrl,
+        apiKey: textConfig.apiKey,
+        model: textConfig.model,
+        world: state.currentWorld,
+        sectionName: 'World',
+        entryId: null,
+        action,
+        userPrompt: mode === 'complete'
+            ? `${rawWorldPrompt ? `${rawWorldPrompt}\n\n` : ''}Return a JSON object with keys: worldSummary, themeKeywords, canonContext, entrySummary, entryTags, entryStyleKeywords, entryContent. Fill all keys for the world overview.`
+            : mode === 'modify-world'
+                ? `${userPromptForModifyWorld ? `${userPromptForModifyWorld}\n\n` : ''}Return a JSON object with exactly two keys: worldSummary and canonContext. Each value must be the full revised text for that field (complete replacement of the existing World Summary and Canon Context shown in context). Preserve facts and names where User Intent does not ask to change them.`
+                : rawWorldPrompt || (mode === 'summary'
+                    ? 'Generate a compelling world overview for this setting.'
+                    : mode === 'canon-expand'
+                        ? 'Expand the canon and rules of this world in a coherent way.'
+                        : 'Rewrite the canon context into a cleaner, stronger, more cohesive version.')
+    };
 
     try {
         const response = await fetch('/gpt/anvil/generate/text', {
@@ -1676,20 +1922,7 @@ async function runWorldOverviewGeneration(mode) {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                apiUrl: textConfig.apiUrl,
-                apiKey: textConfig.apiKey,
-                model: textConfig.model,
-                world: state.currentWorld,
-                sectionName: 'World',
-                entryId: null,
-                action,
-                userPrompt: userPrompt || (mode === 'summary'
-                    ? 'Generate a compelling world overview for this setting.'
-                    : mode === 'canon-expand'
-                        ? 'Expand the canon and rules of this world in a coherent way.'
-                        : 'Rewrite the canon context into a cleaner, stronger, more cohesive version.')
-            })
+            body: JSON.stringify(payload)
         });
 
         const data = await response.json().catch(() => ({}));
@@ -1697,15 +1930,59 @@ async function runWorldOverviewGeneration(mode) {
             throw new Error(data.error?.message || data.error || `HTTP error! status: ${response.status}`);
         }
 
-        const generatedText = String(data.text || '').trim();
-        state.worldHeroAiResult = generatedText || 'No text was returned.';
+        logAiOutboundFromResponse(`generate/text world-${mode}`, data);
 
-        if (mode === 'summary') {
-            state.currentWorld.summary = generatedText;
-        } else if (mode === 'canon-expand') {
-            state.currentWorld.canonContext = [state.currentWorld.canonContext, generatedText].filter(Boolean).join('\n\n');
+        const generatedText = String(data.text || '').trim();
+
+        if (mode === 'complete') {
+            let completed = null;
+            try {
+                completed = JSON.parse(generatedText);
+            } catch (error) {
+                completed = null;
+            }
+            if (!completed || typeof completed !== 'object') {
+                throw new Error('World overview completion response is not valid JSON.');
+            }
+
+            state.currentWorld.summary = String(completed.worldSummary || state.currentWorld.summary || '').trim();
+            state.currentWorld.themeKeywords = normalizeTagList(completed.themeKeywords || state.currentWorld.themeKeywords || []);
+            state.currentWorld.canonContext = String(completed.canonContext || state.currentWorld.canonContext || '').trim();
+
+            const overviewEntry = state.currentWorld.sections?.World?.[0];
+            if (overviewEntry) {
+                overviewEntry.summary = String(completed.entrySummary || overviewEntry.summary || '').trim();
+                overviewEntry.tags = normalizeTagList(completed.entryTags || overviewEntry.tags || []);
+                overviewEntry.styleKeywords = normalizeTagList(completed.entryStyleKeywords || overviewEntry.styleKeywords || []);
+                overviewEntry.content = String(completed.entryContent || overviewEntry.content || '').trim();
+                overviewEntry.updatedAt = Date.now();
+            }
+
+            state.worldHeroAiResult = 'World overview completed successfully.';
+        } else if (mode === 'modify-world') {
+            let revised = null;
+            try {
+                revised = JSON.parse(generatedText);
+            } catch (error) {
+                revised = null;
+            }
+            if (!revised || typeof revised !== 'object') {
+                throw new Error('World modify response is not valid JSON (expected worldSummary and canonContext).');
+            }
+
+            state.currentWorld.summary = String(revised.worldSummary ?? state.currentWorld.summary ?? '').trim();
+            state.currentWorld.canonContext = String(revised.canonContext ?? state.currentWorld.canonContext ?? '').trim();
+            state.worldHeroAiResult = 'World summary and canon updated.';
         } else {
-            state.currentWorld.canonContext = generatedText;
+            state.worldHeroAiResult = generatedText || 'No text was returned.';
+
+            if (mode === 'summary') {
+                state.currentWorld.summary = generatedText;
+            } else if (mode === 'canon-expand') {
+                state.currentWorld.canonContext = [state.currentWorld.canonContext, generatedText].filter(Boolean).join('\n\n');
+            } else {
+                state.currentWorld.canonContext = generatedText;
+            }
         }
 
         pushActivity(`Generated ${mode} for world overview`, 'world_ai_generated');
@@ -1717,7 +1994,8 @@ async function runWorldOverviewGeneration(mode) {
         renderWorldHero();
     } finally {
         state.worldHeroAiLoading = false;
-        renderWorldHero();
+        setAiBusy(false);
+        renderAll();
     }
 }
 
@@ -1761,6 +2039,8 @@ async function sendBrainstormMessage() {
         if (!response.ok) {
             throw new Error(data.error?.message || data.error || `HTTP error! status: ${response.status}`);
         }
+
+        logAiOutboundFromResponse('brainstorm/chat', data);
 
         setBrainstormSession(data.session || createEmptyBrainstormSession(state.currentWorld.id));
         state.brainstormDraft = '';
@@ -1827,6 +2107,7 @@ async function runTextGeneration(action) {
         alert('Select an entry first.');
         return;
     }
+    if (state.aiBusy) return;
 
     const textConfig = getTextGenerationConfig();
     if (!textConfig.apiUrl || !textConfig.apiKey) {
@@ -1835,14 +2116,42 @@ async function runTextGeneration(action) {
     }
 
     const promptInput = dom.studioContent.querySelector('#ai-prompt-input');
-    const userPrompt = promptInput?.value.trim() || '';
+    const rawPrompt = promptInput?.value.trim() || '';
+    const modifyDefaultIntent = 'Revise and refine the current entry body: improve clarity and flow; keep established facts, names, and tone unless they conflict with canon or User Intent asks otherwise. If no specific edits were requested, make only minimal improvements.';
+    const userPrompt = action === 'modify' && !rawPrompt ? modifyDefaultIntent : rawPrompt;
     entry.generationPresets = {
         ...(entry.generationPresets || {}),
-        lastPrompt: userPrompt
+        textPrompt: rawPrompt,
+        lastPrompt: rawPrompt
     };
 
-    state.aiResult = 'Generating text...';
-    renderEntryStudio();
+    const busyMessage = action === 'complete'
+        ? 'Completing entry content and metadata...'
+        : action === 'modify'
+            ? 'Modifying entry text...'
+            : 'Generating text content...';
+    const resultPreview = action === 'complete'
+        ? 'Completing entry: summary, tags, style keywords and full text...'
+        : action === 'modify'
+            ? 'Applying edits to current entry body...'
+            : 'Generating text...';
+
+    setAiBusy(true, busyMessage);
+    state.aiResult = resultPreview;
+    renderAll();
+
+    const payload = {
+        apiUrl: textConfig.apiUrl,
+        apiKey: textConfig.apiKey,
+        model: textConfig.model,
+        world: state.currentWorld,
+        sectionName: state.activeSection,
+        entryId: entry.id,
+        action: action === 'complete' ? 'rewrite' : action,
+        userPrompt: action === 'complete'
+            ? `${rawPrompt ? `${rawPrompt}\n\n` : ''}Return a JSON object with keys: summary, tags, styleKeywords, content. Fill all keys for this entry based on the world canon and linked context.`
+            : userPrompt
+    };
 
     try {
         const response = await fetch('/gpt/anvil/generate/text', {
@@ -1850,16 +2159,7 @@ async function runTextGeneration(action) {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                apiUrl: textConfig.apiUrl,
-                apiKey: textConfig.apiKey,
-                model: textConfig.model,
-                world: state.currentWorld,
-                sectionName: state.activeSection,
-                entryId: entry.id,
-                action,
-                userPrompt
-            })
+            body: JSON.stringify(payload)
         });
 
         const data = await response.json().catch(() => ({}));
@@ -1867,26 +2167,48 @@ async function runTextGeneration(action) {
             throw new Error(data.error?.message || data.error || `HTTP error! status: ${response.status}`);
         }
 
+        logAiOutboundFromResponse(`generate/text entry-${action}`, data);
+
         const generatedText = String(data.text || '').trim();
         state.aiContextSummary = data.contextSummary || null;
-        state.aiResult = generatedText || 'No text was returned.';
         entry.aiContextSummary = formatContextSummary(data.contextSummary);
 
-        if (action === 'align') {
-            renderEntryStudio();
-            return;
-        }
+        if (action === 'complete') {
+            let completed = null;
+            try {
+                completed = JSON.parse(generatedText);
+            } catch (error) {
+                completed = null;
+            }
 
-        if (action === 'rewrite') {
-            entry.content = generatedText;
-        } else if (action === 'expand') {
-            entry.content = [entry.content, generatedText].filter(Boolean).join('\n\n');
+            if (!completed || typeof completed !== 'object') {
+                throw new Error('Complete Entry response is not valid JSON.');
+            }
+
+            entry.summary = String(completed.summary || entry.summary || '').trim();
+            entry.tags = normalizeTagList(completed.tags || entry.tags || []);
+            entry.styleKeywords = normalizeTagList(completed.styleKeywords || entry.styleKeywords || []);
+            entry.content = String(completed.content || entry.content || '').trim();
+            state.aiResult = 'Entry completed successfully.';
         } else {
-            entry.content = entry.content ? `${entry.content}\n\n${generatedText}` : generatedText;
-        }
+            state.aiResult = generatedText || 'No text was returned.';
 
-        if (!entry.summary) {
-            entry.summary = deriveSummaryFromText(generatedText);
+            if (action === 'align') {
+                renderEntryStudio();
+                return;
+            }
+
+            if (action === 'rewrite' || action === 'modify') {
+                entry.content = generatedText;
+            } else if (action === 'expand') {
+                entry.content = [entry.content, generatedText].filter(Boolean).join('\n\n');
+            } else {
+                entry.content = entry.content ? `${entry.content}\n\n${generatedText}` : generatedText;
+            }
+
+            if (!entry.summary) {
+                entry.summary = deriveSummaryFromText(generatedText);
+            }
         }
 
         entry.updatedAt = Date.now();
@@ -1906,6 +2228,9 @@ async function runTextGeneration(action) {
         console.error('Failed Anvil text generation:', error);
         state.aiResult = `Text generation failed: ${error.message}`;
         renderEntryStudio();
+    } finally {
+        setAiBusy(false);
+        renderAll();
     }
 }
 
@@ -1915,6 +2240,7 @@ async function runImageGeneration(action) {
         alert('Select an entry first.');
         return;
     }
+    if (state.aiBusy) return;
 
     const imageConfig = getImageGenerationConfig();
     if (!imageConfig.apiUrl || !imageConfig.apiKey) {
@@ -1922,15 +2248,32 @@ async function runImageGeneration(action) {
         return;
     }
 
-    const promptInput = dom.studioContent.querySelector('#ai-prompt-input');
+    const promptInput = dom.studioContent.querySelector('#image-prompt-input');
     const userPrompt = promptInput?.value.trim() || '';
     entry.generationPresets = {
         ...(entry.generationPresets || {}),
-        lastPrompt: userPrompt
+        imagePrompt: userPrompt
     };
 
+    setAiBusy(true, 'Generating concept art...');
     state.aiResult = 'Generating concept art...';
-    renderEntryStudio();
+    renderAll();
+
+    const payload = {
+        apiUrl: imageConfig.apiUrl,
+        apiKey: imageConfig.apiKey,
+        model: imageConfig.model,
+        size: imageConfig.size,
+        world: state.currentWorld,
+        sectionName: state.activeSection,
+        entryId: entry.id,
+        action,
+        userPrompt,
+        referenceImages: [
+            ...(entry.images || []).map((image) => image.url),
+            ...(state.currentWorld.styleAnchors || []).map((anchor) => anchor.url)
+        ]
+    };
 
     try {
         const response = await fetch('/gpt/anvil/generate/image', {
@@ -1938,27 +2281,15 @@ async function runImageGeneration(action) {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                apiUrl: imageConfig.apiUrl,
-                apiKey: imageConfig.apiKey,
-                model: imageConfig.model,
-                size: imageConfig.size,
-                world: state.currentWorld,
-                sectionName: state.activeSection,
-                entryId: entry.id,
-                action,
-                userPrompt,
-                referenceImages: [
-                    ...(entry.images || []).map((image) => image.url),
-                    ...(state.currentWorld.styleAnchors || []).map((anchor) => anchor.url)
-                ]
-            })
+            body: JSON.stringify(payload)
         });
 
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
             throw new Error(data.error?.message || data.error || `HTTP error! status: ${response.status}`);
         }
+
+        logAiOutboundFromResponse(`generate/image entry-${action}`, data);
 
         const imageUrl = extractImageUrl(data);
         const generatedImage = {
@@ -1972,23 +2303,25 @@ async function runImageGeneration(action) {
             createdAt: Date.now()
         };
 
-        entry.images.unshift(generatedImage);
-        entry.updatedAt = Date.now();
+        const liveEntry = getSelectedEntry();
+        if (!liveEntry || liveEntry.id !== entry.id) {
+            throw new Error('Selected entry changed during image generation.');
+        }
+
+        liveEntry.images = Array.isArray(liveEntry.images) ? liveEntry.images : [];
+        liveEntry.images.unshift(generatedImage);
+        liveEntry.updatedAt = Date.now();
         state.aiContextSummary = data.contextSummary || null;
         const selectedReferenceLabel = data.contextSummary?.selectedReference?.label || data.referenceUsedLabel || '';
         const referenceCount = Array.isArray(data.contextSummary?.referenceCandidates) ? data.contextSummary.referenceCandidates.length : 0;
         state.aiResult = `Generated image with ${imageConfig.model}. ${selectedReferenceLabel ? `Primary reference: ${selectedReferenceLabel}. ` : ''}${referenceCount > 0 ? `Reference pool: ${referenceCount}.` : 'No explicit reference image was used.'}`;
 
-        if (!state.currentWorld.coverImage) {
-            state.currentWorld.coverImage = generatedImage.url;
-        }
-
-        pushActivity(`Generated ${action} image for ${entry.title}`, 'image_generated');
+        pushActivity(`Generated ${action} image for ${liveEntry.title}`, 'image_generated');
         state.currentWorld.generationHistory.unshift({
             id: `gen_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
             kind: 'image',
             action,
-            entryId: entry.id,
+            entryId: liveEntry.id,
             prompt: userPrompt,
             createdAt: Date.now()
         });
@@ -2000,6 +2333,203 @@ async function runImageGeneration(action) {
         console.error('Failed Anvil image generation:', error);
         state.aiResult = `Image generation failed: ${error.message}`;
         renderEntryStudio();
+    } finally {
+        setAiBusy(false);
+        renderAll();
+    }
+}
+
+function logAiOutboundFromResponse(label, data) {
+    if (!data || typeof data !== 'object') return;
+
+    let outbound = data.aiOutbound;
+    const hasImageReferenceFields = Object.prototype.hasOwnProperty.call(data, 'referenceUsed')
+        || Object.prototype.hasOwnProperty.call(data, 'referenceUsedLabel');
+
+    if (!outbound && (data.systemPromptUsed || data.promptUsed) && !hasImageReferenceFields) {
+        outbound = {
+            model: data.model,
+            messages: [
+                ...(data.systemPromptUsed ? [{ role: 'system', content: data.systemPromptUsed }] : []),
+                ...(data.promptUsed ? [{ role: 'user', content: data.promptUsed }] : [])
+            ]
+        };
+    }
+    if (!outbound && data.promptUsed != null && hasImageReferenceFields) {
+        outbound = {
+            model: data.model,
+            prompt: data.promptUsed,
+            referenceUrl: data.referenceUsed,
+            referenceLabel: data.referenceUsedLabel
+        };
+    }
+    if (!outbound) return;
+
+    try {
+        console.groupCollapsed(`[Anvil AI → model] ${label}`);
+        if (outbound.model) {
+            console.log('model:', outbound.model);
+        }
+        if (outbound.size) {
+            console.log('size:', outbound.size);
+        }
+        if (Array.isArray(outbound.messages)) {
+            outbound.messages.forEach((m) => {
+                const role = m.role || 'message';
+                console.log(`── ${role} ──`);
+                console.log(m.content != null ? m.content : '');
+            });
+        }
+        if (outbound.prompt != null && String(outbound.prompt).length > 0) {
+            console.log('── image prompt (to provider) ──');
+            console.log(outbound.prompt);
+        }
+        if (outbound.referenceUrl || outbound.referenceLabel) {
+            console.log('reference image:', outbound.referenceLabel || '(none)', outbound.referenceUrl || '');
+        }
+        console.groupEnd();
+    } catch (error) {
+        console.groupEnd();
+    }
+}
+
+async function runWorldCoverGeneration() {
+    if (!state.currentWorld || state.worldHeroVisualLoading || state.aiBusy || state.worldHeroAiLoading) return;
+
+    const imageConfig = getImageGenerationConfig();
+    if (!imageConfig.apiUrl || !imageConfig.apiKey) {
+        alert('Please configure your image model API in the settings.');
+        return;
+    }
+
+    const promptFromDom = dom.worldHero?.querySelector('#world-cover-image-prompt')?.value?.trim() || '';
+    const userPrompt = promptFromDom || (state.currentWorld.worldHeroVisualPreset?.coverPrompt || '').trim();
+    state.currentWorld.worldHeroVisualPreset = state.currentWorld.worldHeroVisualPreset || {};
+    state.currentWorld.worldHeroVisualPreset.coverPrompt = promptFromDom || state.currentWorld.worldHeroVisualPreset.coverPrompt;
+
+    state.worldHeroVisualLoading = true;
+    setAiBusy(true, 'Generating world cover image...');
+    state.worldHeroVisualResult = 'Generating world cover image...';
+    renderAll();
+
+    const payload = {
+        apiUrl: imageConfig.apiUrl,
+        apiKey: imageConfig.apiKey,
+        model: imageConfig.model,
+        size: imageConfig.size,
+        world: state.currentWorld,
+        sectionName: 'World',
+        entryId: getWorldOverviewEntry()?.id || null,
+        action: 'world-cover',
+        userPrompt,
+        referenceImages: [
+            ...(state.currentWorld.styleAnchors || []).map((anchor) => anchor.url)
+        ]
+    };
+
+    try {
+        const response = await fetch('/gpt/anvil/generate/image', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error?.message || data.error || `HTTP error! status: ${response.status}`);
+        }
+
+        logAiOutboundFromResponse('generate/image world-cover', data);
+
+        const imageUrl = extractImageUrl(data);
+        state.currentWorld.coverImage = imageUrl;
+        state.worldHeroVisualResult = `World cover generated with ${imageConfig.model}.`;
+        pushActivity('Generated world cover image', 'world_cover_generated');
+        queueSaveCurrentWorld();
+    } catch (error) {
+        console.error('Failed world cover generation:', error);
+        state.worldHeroVisualResult = `World cover generation failed: ${error.message}`;
+    } finally {
+        state.worldHeroVisualLoading = false;
+        setAiBusy(false);
+        renderAll();
+    }
+}
+
+async function runWorldStyleAnchorGeneration() {
+    if (!state.currentWorld || state.worldHeroVisualLoading || state.aiBusy || state.worldHeroAiLoading) return;
+
+    const imageConfig = getImageGenerationConfig();
+    if (!imageConfig.apiUrl || !imageConfig.apiKey) {
+        alert('Please configure your image model API in the settings.');
+        return;
+    }
+
+    const promptFromDom = dom.worldHero?.querySelector('#world-anchor-image-prompt')?.value?.trim() || '';
+    const userPrompt = promptFromDom || (state.currentWorld.worldHeroVisualPreset?.anchorPrompt || '').trim()
+        || 'A cohesive visual style reference for this world (palette, lighting, materials, line quality).';
+    state.currentWorld.worldHeroVisualPreset = state.currentWorld.worldHeroVisualPreset || {};
+    state.currentWorld.worldHeroVisualPreset.anchorPrompt = promptFromDom || state.currentWorld.worldHeroVisualPreset.anchorPrompt;
+
+    state.worldHeroVisualLoading = true;
+    setAiBusy(true, 'Generating style anchor image...');
+    state.worldHeroVisualResult = 'Generating style anchor image...';
+    renderAll();
+
+    const referenceImages = [
+        ...(state.currentWorld.coverImage ? [state.currentWorld.coverImage] : []),
+        ...(state.currentWorld.styleAnchors || []).map((anchor) => anchor.url)
+    ].filter(Boolean);
+
+    const payload = {
+        apiUrl: imageConfig.apiUrl,
+        apiKey: imageConfig.apiKey,
+        model: imageConfig.model,
+        size: imageConfig.size,
+        world: state.currentWorld,
+        sectionName: 'World',
+        entryId: null,
+        action: 'visualize',
+        userPrompt,
+        referenceImages
+    };
+
+    try {
+        const response = await fetch('/gpt/anvil/generate/image', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error?.message || data.error || `HTTP error! status: ${response.status}`);
+        }
+
+        logAiOutboundFromResponse('generate/image world-style-anchor', data);
+
+        const imageUrl = extractImageUrl(data);
+        const label = userPrompt.length > 90 ? `${userPrompt.slice(0, 87)}...` : userPrompt;
+        state.currentWorld.styleAnchors.unshift({
+            id: `anchor_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+            url: imageUrl,
+            label: label || 'AI Style Anchor',
+            entryId: null
+        });
+        state.worldHeroVisualResult = `Style anchor added (${imageConfig.model}).`;
+        pushActivity('Generated style anchor image', 'anchor_generated');
+        queueSaveCurrentWorld();
+    } catch (error) {
+        console.error('Failed style anchor generation:', error);
+        state.worldHeroVisualResult = `Style anchor generation failed: ${error.message}`;
+    } finally {
+        state.worldHeroVisualLoading = false;
+        setAiBusy(false);
+        renderAll();
     }
 }
 

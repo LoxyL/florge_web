@@ -48,7 +48,7 @@ export class DialogGPT {
 	_updateModelConfig(modelName) {
 		if (!this.bot) return;
 
-		if(modelName === 'deepseek-ai/DeepSeek-V3' || modelName === 'deepseek-ai/DeepSeek-R1') {
+		if (modelName.startsWith('deepseek')) {
 			this.bot.setConfig({
 				url: config.urlDeepseek,
 				apiKey: config.apikeyDeepseek,

@@ -383,6 +383,8 @@ function buildAnvilTextOutputSpecification(action) {
         '- No chat wrapper: do not write preambles ("Sure", "Here is", "Below is") or postscripts ("Hope this helps", "Let me know"). Do not restate the task or repeat section labels like "Summary:" unless the user explicitly asked for that label as content.',
         '- If User Intent asks for one artifact only (e.g. a single summary, one paragraph, or one list of names), output only that artifact — no extra sections.',
         '- Use blank lines between paragraphs when needed; that is not Markdown.',
+        '- LANGUAGE_RULE: Write the entire output in the same natural language as the User Intent text whenever User Intent contains substantive wording in that language (e.g. user writes in Chinese → respond in Chinese). If User Intent is empty or has no clear natural language, match the dominant language of Current Entry (summary + content), then World Summary and Canon Context, then Linked Entries; if still unclear, follow the language of the longest substantive context field.',
+        '- If User Intent requires a JSON object as the only output, return valid JSON only (no Markdown fences, no commentary) and apply LANGUAGE_RULE to every string value inside the JSON.',
         `- Server max output budget: approximately ${normalized === 'align' ? '1200' : '1800'} tokens — stay concise when the user asks for something short.`
     ];
 
@@ -392,6 +394,12 @@ function buildAnvilTextOutputSpecification(action) {
         ],
         rewrite: [
             '- Action rewrite: output exactly one final version of the text being rewritten (full replacement). No quotation marks wrapping the whole answer, no "Rewritten version:" prefix.'
+        ],
+        modify: [
+            '- Action modify: revise the Current Entry body to satisfy User Intent. Output the full updated body as one plain-text document (full replacement of the main entry content field). Preserve facts, names, and tone where User Intent does not ask to change them; apply minimal edits when User Intent is vague.'
+        ],
+        'modify-world': [
+            '- Action modify-world: revise the world-level World Summary and Canon Context together per User Intent. Output valid JSON only (no Markdown fences, no commentary) with exactly two string keys: worldSummary and canonContext. Each value is the full replacement text for that field. Preserve facts and names where User Intent does not ask to change them; apply minimal edits when User Intent is vague.'
         ],
         expand: [
             '- Action expand: output only the new text to add. Do not paste the existing entry body back; do not add headings like "Expansion:".'
@@ -1604,7 +1612,14 @@ app.post('/gpt/anvil/brainstorm/chat', async (req, res) => {
         res.json({
             assistantMessage,
             proposedOperations,
-            session: nextSession
+            session: nextSession,
+            aiOutbound: {
+                model,
+                messages: requestMessages.map((m) => ({
+                    role: m.role,
+                    content: m.content
+                }))
+            }
         });
     } catch (error) {
         console.error('[ERROR][ANVIL] Failed to run brainstorm chat:', error);
@@ -1698,7 +1713,7 @@ app.post('/gpt/anvil/generate/text', async (req, res) => {
             body: JSON.stringify({
                 model,
                 stream: false,
-                max_tokens: action === 'align' ? 1200 : 1800,
+                max_tokens: action === 'align' ? 1200 : action === 'modify-world' ? 3200 : 1800,
                 messages: [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: userContent }
@@ -1715,7 +1730,15 @@ app.post('/gpt/anvil/generate/text', async (req, res) => {
             text: extractChatCompletionText(data),
             model,
             contextSummary,
-            promptUsed: userContent
+            promptUsed: userContent,
+            systemPromptUsed: systemPrompt,
+            aiOutbound: {
+                model,
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userContent }
+                ]
+            }
         });
     } catch (error) {
         console.error('[ERROR][ANVIL] Failed to generate text:', error);
@@ -1793,7 +1816,14 @@ app.post('/gpt/anvil/generate/image', async (req, res) => {
             contextSummary,
             promptUsed: prompt,
             referenceUsed: referencePlan.selectedReference?.url || null,
-            referenceUsedLabel: referencePlan.selectedReference?.label || null
+            referenceUsedLabel: referencePlan.selectedReference?.label || null,
+            aiOutbound: {
+                model,
+                size,
+                prompt,
+                referenceUrl: referencePlan.selectedReference?.url || null,
+                referenceLabel: referencePlan.selectedReference?.label || null
+            }
         });
     } catch (error) {
         console.error('[ERROR][ANVIL] Failed to generate image:', error);
