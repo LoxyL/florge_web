@@ -12,6 +12,14 @@ const SECTION_ORDER = [
 ];
 
 const ENTRY_STATUSES = ['Seed', 'Draft', 'Review', 'Locked'];
+const BRAINSTORM_MODEL_OPTIONS = [
+    { value: 'gpt-4o-mini', label: 'GPT-4o-mini' },
+    { value: 'gpt-4o', label: 'GPT-4o' },
+    { value: 'o1-mini', label: 'o1-mini' },
+    { value: 'deepseek-chat', label: 'Deepseek Chat' },
+    { value: 'deepseek-ai/DeepSeek-V3', label: 'DeepSeek V3' },
+    { value: 'deepseek-ai/DeepSeek-R1', label: 'DeepSeek R1' }
+];
 
 const state = {
     worlds: [],
@@ -23,6 +31,17 @@ const state = {
     statusFilter: 'all',
     aiResult: '',
     aiContextSummary: null,
+    brainstormSessionsByWorldId: {},
+    brainstormDraft: '',
+    brainstormModel: 'gpt-4o-mini',
+    brainstormPendingPatch: [],
+    brainstormSending: false,
+    brainstormLoading: false,
+    brainstormApplying: false,
+    brainstormExpanded: false,
+    worldHeroAiPrompt: '',
+    worldHeroAiResult: '',
+    worldHeroAiLoading: false,
     saveTimer: null,
     saveInFlight: false,
     saveQueued: false
@@ -48,11 +67,13 @@ function cacheDom() {
     dom.studioContent = document.getElementById('entry-studio-content');
     dom.entrySearchInput = document.getElementById('entry-search-input');
     dom.entryStatusFilter = document.getElementById('entry-status-filter');
+    dom.entryBoardCreateBtn = document.getElementById('entry-board-create-btn');
     dom.textModel = document.getElementById('anvil-text-model');
     dom.imageModel = document.getElementById('anvil-image-model');
     dom.imageRatio = document.getElementById('anvil-image-ratio');
     dom.imageQuality = document.getElementById('anvil-image-quality');
     dom.sectionBoardPeek = document.getElementById('section-board-peek');
+    dom.brainstormPanel = document.getElementById('brainstorm-panel');
     dom.lightbox = document.getElementById('lightbox');
     dom.lightboxImg = document.getElementById('lightbox-img');
     dom.lightboxCaption = document.getElementById('lightbox-caption');
@@ -71,6 +92,8 @@ function bindStaticEvents() {
         state.statusFilter = event.target.value;
         renderEntryBoard();
     });
+
+    dom.entryBoardCreateBtn?.addEventListener('click', () => createEntry(state.activeSection));
 
     [dom.textModel, dom.imageModel, dom.imageRatio, dom.imageQuality].forEach((element) => {
         element?.addEventListener('change', saveSidebarSettings);
@@ -99,7 +122,8 @@ function saveSidebarSettings() {
         textModel: dom.textModel?.value || 'gpt-4o-mini',
         imageModel: dom.imageModel?.value || 'gpt-image-1',
         imageRatio: dom.imageRatio?.value || '1:1',
-        imageQuality: dom.imageQuality?.value || '1024'
+        imageQuality: dom.imageQuality?.value || '1024',
+        brainstormModel: state.brainstormModel || 'gpt-4o-mini'
     };
 
     localStorage.setItem('anvilSettings', JSON.stringify(settings));
@@ -115,6 +139,7 @@ function loadSidebarSettings() {
         if (settings.imageModel && dom.imageModel) { dom.imageModel.value = settings.imageModel; dom.imageModel.dispatchEvent(new Event('change')); }
         if (settings.imageRatio && dom.imageRatio) { dom.imageRatio.value = settings.imageRatio; dom.imageRatio.dispatchEvent(new Event('change')); }
         if (settings.imageQuality && dom.imageQuality) { dom.imageQuality.value = settings.imageQuality; dom.imageQuality.dispatchEvent(new Event('change')); }
+        state.brainstormModel = settings.brainstormModel || settings.textModel || 'gpt-4o-mini';
     } catch (error) {
         console.error('Failed to load Anvil settings:', error);
     }
@@ -122,61 +147,66 @@ function loadSidebarSettings() {
 
 function initCustomSelects() {
     const selects = document.querySelectorAll('.sidebar-select');
-    selects.forEach(select => {
-        select.style.display = 'none';
-        
-        const wrapper = document.createElement('div');
-        wrapper.className = 'custom-select-wrapper';
-        select.parentNode.insertBefore(wrapper, select);
-        
-        const trigger = document.createElement('div');
-        trigger.className = 'custom-select-trigger';
-        trigger.innerHTML = `<span>${escapeHtml(select.options[select.selectedIndex]?.text || '')}</span><span class="custom-select-arrow"></span>`;
-        
-        const optionsDiv = document.createElement('div');
-        optionsDiv.className = 'custom-select-options';
-        
-        Array.from(select.options).forEach(option => {
-            const optDiv = document.createElement('div');
-            optDiv.className = 'custom-select-option';
-            optDiv.textContent = option.text;
-            optDiv.dataset.value = option.value;
-            if (option.selected) optDiv.classList.add('selected');
-            
-            optDiv.addEventListener('click', () => {
-                select.value = option.value;
-                trigger.querySelector('span').textContent = option.text;
-                select.dispatchEvent(new Event('change'));
-                
-                optionsDiv.querySelectorAll('.custom-select-option').forEach(el => el.classList.remove('selected'));
-                optDiv.classList.add('selected');
-                
-                wrapper.classList.remove('open');
-            });
-            optionsDiv.appendChild(optDiv);
-        });
-        
-        wrapper.appendChild(trigger);
-        wrapper.appendChild(optionsDiv);
-        
-        trigger.addEventListener('click', (e) => {
-            e.stopPropagation();
-            document.querySelectorAll('.custom-select-wrapper').forEach(el => {
-                if (el !== wrapper) el.classList.remove('open');
-            });
-            wrapper.classList.toggle('open');
-        });
-        
-        select.addEventListener('change', () => {
-            trigger.querySelector('span').textContent = select.options[select.selectedIndex]?.text || '';
-            optionsDiv.querySelectorAll('.custom-select-option').forEach(el => {
-                el.classList.toggle('selected', el.dataset.value === select.value);
-            });
-        });
-    });
+    selects.forEach((select) => enhanceCustomSelect(select));
     
     document.addEventListener('click', () => {
         document.querySelectorAll('.custom-select-wrapper').forEach(el => el.classList.remove('open'));
+    });
+}
+
+function enhanceCustomSelect(select) {
+    if (!select || select.dataset.customSelectReady === 'true') return;
+
+    select.style.display = 'none';
+    select.dataset.customSelectReady = 'true';
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'custom-select-wrapper';
+    select.parentNode.insertBefore(wrapper, select);
+
+    const trigger = document.createElement('div');
+    trigger.className = 'custom-select-trigger';
+    trigger.innerHTML = `<span>${escapeHtml(select.options[select.selectedIndex]?.text || '')}</span><span class="custom-select-arrow"></span>`;
+
+    const optionsDiv = document.createElement('div');
+    optionsDiv.className = 'custom-select-options';
+
+    Array.from(select.options).forEach((option) => {
+        const optDiv = document.createElement('div');
+        optDiv.className = 'custom-select-option';
+        optDiv.textContent = option.text;
+        optDiv.dataset.value = option.value;
+        if (option.selected) optDiv.classList.add('selected');
+
+        optDiv.addEventListener('click', () => {
+            select.value = option.value;
+            trigger.querySelector('span').textContent = option.text;
+            select.dispatchEvent(new Event('change'));
+
+            optionsDiv.querySelectorAll('.custom-select-option').forEach((element) => element.classList.remove('selected'));
+            optDiv.classList.add('selected');
+
+            wrapper.classList.remove('open');
+        });
+        optionsDiv.appendChild(optDiv);
+    });
+
+    wrapper.appendChild(trigger);
+    wrapper.appendChild(optionsDiv);
+
+    trigger.addEventListener('click', (event) => {
+        event.stopPropagation();
+        document.querySelectorAll('.custom-select-wrapper').forEach((element) => {
+            if (element !== wrapper) element.classList.remove('open');
+        });
+        wrapper.classList.toggle('open');
+    });
+
+    select.addEventListener('change', () => {
+        trigger.querySelector('span').textContent = select.options[select.selectedIndex]?.text || '';
+        optionsDiv.querySelectorAll('.custom-select-option').forEach((element) => {
+            element.classList.toggle('selected', element.dataset.value === select.value);
+        });
     });
 }
 
@@ -260,6 +290,60 @@ function ensureWorldShape(world) {
     };
 }
 
+function createEmptyBrainstormSession(worldId) {
+    return {
+        worldId,
+        messages: [],
+        lastProposedOperations: [],
+        updatedAt: 0
+    };
+}
+
+function getBrainstormSession(worldId = state.currentWorld?.id) {
+    if (!worldId) return createEmptyBrainstormSession('');
+
+    if (!state.brainstormSessionsByWorldId[worldId]) {
+        state.brainstormSessionsByWorldId[worldId] = createEmptyBrainstormSession(worldId);
+    }
+
+    return state.brainstormSessionsByWorldId[worldId];
+}
+
+function setBrainstormSession(session) {
+    if (!session?.worldId) return;
+    state.brainstormSessionsByWorldId[session.worldId] = {
+        ...createEmptyBrainstormSession(session.worldId),
+        ...session,
+        messages: Array.isArray(session.messages) ? session.messages : [],
+        lastProposedOperations: Array.isArray(session.lastProposedOperations) ? session.lastProposedOperations : []
+    };
+    if (session.worldId === state.currentWorld?.id) {
+        state.brainstormPendingPatch = state.brainstormSessionsByWorldId[session.worldId].lastProposedOperations;
+    }
+}
+
+async function loadBrainstormSession(worldId) {
+    if (!worldId) return;
+
+    state.brainstormLoading = true;
+
+    try {
+        const response = await fetch(`/gpt/anvil/brainstorm/session/${encodeURIComponent(worldId)}`);
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            throw new Error(data.error || `HTTP error! status: ${response.status}`);
+        }
+
+        setBrainstormSession(data);
+    } catch (error) {
+        console.error('Failed to load Anvil brainstorm session:', error);
+        setBrainstormSession(createEmptyBrainstormSession(worldId));
+    } finally {
+        state.brainstormLoading = false;
+    }
+}
+
 async function loadWorlds() {
     try {
         const response = await fetch('/gpt/anvil/worlds');
@@ -277,6 +361,9 @@ async function loadWorlds() {
 
         state.currentWorld = null;
         state.activeEntryId = null;
+        state.brainstormPendingPatch = [];
+        state.brainstormDraft = '';
+        state.brainstormExpanded = false;
         renderAll();
     } catch (error) {
         console.error('Failed to load Anvil worlds:', error);
@@ -292,8 +379,11 @@ async function selectWorld(worldId) {
         }
 
         state.currentWorld = ensureWorldShape(await response.json());
+        await loadBrainstormSession(worldId);
         state.activeSection = state.currentWorld.sections[state.activeSection] ? state.activeSection : 'World';
         state.worldHeroExpanded = false;
+        state.brainstormExpanded = getBrainstormSession(worldId).messages.length > 0 || state.brainstormPendingPatch.length > 0;
+        state.brainstormDraft = '';
         ensureActiveEntry();
         renderAll();
     } catch (error) {
@@ -322,6 +412,10 @@ async function createWorld() {
         state.currentWorld = ensureWorldShape(world);
         state.activeSection = 'World';
         state.worldHeroExpanded = true;
+        setBrainstormSession(createEmptyBrainstormSession(state.currentWorld.id));
+        state.brainstormExpanded = true;
+        state.brainstormDraft = '';
+        state.brainstormPendingPatch = [];
         ensureActiveEntry();
         upsertWorldSummary(state.currentWorld);
         renderAll();
@@ -356,6 +450,8 @@ async function deleteCurrentWorld() {
         state.worlds = state.worlds.filter((world) => world.id !== state.currentWorld.id);
         state.currentWorld = null;
         state.activeEntryId = null;
+        state.brainstormPendingPatch = [];
+        state.brainstormDraft = '';
 
         if (state.worlds.length > 0) {
             await selectWorld(state.worlds[0].id);
@@ -559,6 +655,7 @@ function renderAll() {
     renderWorldHero();
     renderEntryBoard();
     renderEntryStudio();
+    renderBrainstormPanel();
 }
 
 function renderSectionBoardPeek(entries = null) {
@@ -676,6 +773,8 @@ function renderWorldHero() {
     const stats = summarizeWorld(state.currentWorld);
     const activities = (state.currentWorld.recentActivities || []).slice(0, 4);
     const isExpanded = state.worldHeroExpanded;
+    const legacyWorldPrompt = state.currentWorld.sections?.World?.[0]?.generationPresets?.worldPrompt;
+    const worldHeroPresetPrompt = state.currentWorld.worldHeroAiPreset?.prompt || legacyWorldPrompt || '';
     const anchorMarkup = (state.currentWorld.styleAnchors || []).length > 0
         ? state.currentWorld.styleAnchors.map((anchor) => `
             <div class="anchor-card">
@@ -719,6 +818,22 @@ function renderWorldHero() {
                     <textarea id="world-summary-input" placeholder="High-level overview of the world, tone and themes...">${escapeHtml(state.currentWorld.summary || '')}</textarea>
                     <input id="world-theme-input" type="text" value="${escapeAttribute((state.currentWorld.themeKeywords || []).join(', '))}" placeholder="Theme keywords, separated by commas">
                     <textarea id="world-canon-input" placeholder="Canon context: immutable truths, rules, timelines, taboo elements...">${escapeHtml(state.currentWorld.canonContext || '')}</textarea>
+
+                    <div class="world-ai-panel">
+                        <div class="ai-panel-header">
+                            <div>
+                                <div class="eyebrow">World Overview AI</div>
+                                <div class="muted">Uses world summary and canon fields only — does not create or edit World entries.</div>
+                            </div>
+                        </div>
+                        <textarea id="world-ai-prompt-input" placeholder="Example: help me turn this into a decaying oceanic empire with ritual astronomy and a strict caste system.">${escapeHtml(state.worldHeroAiPrompt || worldHeroPresetPrompt)}</textarea>
+                        <div class="ai-button-row">
+                            <button class="button-primary" data-world-ai-action="summary" ${state.worldHeroAiLoading ? 'disabled' : ''}>Generate Overview</button>
+                            <button class="button-ghost" data-world-ai-action="canon-expand" ${state.worldHeroAiLoading ? 'disabled' : ''}>Expand Canon</button>
+                            <button class="button-ghost" data-world-ai-action="canon-rewrite" ${state.worldHeroAiLoading ? 'disabled' : ''}>Rewrite Canon</button>
+                        </div>
+                        <div class="ai-result-panel">${escapeHtml(state.worldHeroAiResult || 'World-level AI output will appear here. It can directly rewrite the top overview and canon fields.')}</div>
+                    </div>
 
                     <div class="hero-actions">
                         <button class="button-primary" data-create-entry-hero="true">New ${escapeHtml(state.activeSection)} Entry</button>
@@ -778,6 +893,9 @@ function renderWorldHero() {
         state.currentWorld.canonContext = event.target.value;
         queueSaveCurrentWorld();
     });
+    dom.worldHero.querySelector('#world-ai-prompt-input')?.addEventListener('input', (event) => {
+        state.worldHeroAiPrompt = event.target.value;
+    });
     dom.worldHero.querySelector('[data-create-entry-hero="true"]')?.addEventListener('click', () => createEntry(state.activeSection));
     dom.worldHero.querySelector('[data-save-world="true"]')?.addEventListener('click', () => {
         clearTimeout(state.saveTimer);
@@ -785,6 +903,11 @@ function renderWorldHero() {
     });
     dom.worldHero.querySelector('[data-delete-world="true"]')?.addEventListener('click', () => {
         void deleteCurrentWorld();
+    });
+    dom.worldHero.querySelectorAll('[data-world-ai-action]').forEach((element) => {
+        element.addEventListener('click', () => {
+            void runWorldOverviewGeneration(element.dataset.worldAiAction);
+        });
     });
 
     dom.worldHero.querySelectorAll('[data-preview-image]').forEach((element) => {
@@ -987,6 +1110,276 @@ function renderEntryStudio() {
     `;
 
     bindEntryStudioEvents(entry);
+}
+
+function renderBrainstormPanel() {
+    if (!dom.brainstormPanel) return;
+
+    if (!state.currentWorld) {
+        dom.brainstormPanel.className = 'brainstorm-panel is-collapsed';
+        dom.brainstormPanel.innerHTML = `
+            <div class="brainstorm-panel-shell">
+                <div class="brainstorm-header">
+                    <div class="brainstorm-heading">
+                        <div class="brainstorm-orb"></div>
+                        <div class="brainstorm-heading-copy">
+                            <strong>World Brainstorm</strong>
+                            <span>Pick a world first to start world-aware ideation.</span>
+                        </div>
+                    </div>
+                    <div class="brainstorm-toggle" aria-hidden="true"></div>
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    const session = getBrainstormSession();
+    const messages = Array.isArray(session.messages) ? session.messages : [];
+    const operations = Array.isArray(state.brainstormPendingPatch) ? state.brainstormPendingPatch : [];
+    const pendingCount = operations.filter((operation) => operation.status !== 'applied' && operation.status !== 'rejected').length;
+    const activeEntry = getSelectedEntry();
+
+    dom.brainstormPanel.className = `brainstorm-panel ${state.brainstormExpanded ? 'is-expanded' : 'is-collapsed'}`;
+    dom.brainstormPanel.innerHTML = `
+        <div class="brainstorm-panel-shell">
+            <button class="brainstorm-header" type="button" data-brainstorm-toggle="true" aria-expanded="${state.brainstormExpanded ? 'true' : 'false'}">
+                <div class="brainstorm-heading">
+                    <div class="brainstorm-orb"></div>
+                    <div class="brainstorm-heading-copy">
+                        <strong>World Brainstorm</strong>
+                        <span>${escapeHtml(state.currentWorld.name || 'Untitled World')} · AI can read the full world and propose batch changes.</span>
+                    </div>
+                </div>
+                <div class="brainstorm-meta">
+                    <span class="brainstorm-pill">${messages.length} turns</span>
+                    <span class="brainstorm-pill">${pendingCount} pending changes</span>
+                    <span class="brainstorm-pill">${escapeHtml(activeEntry?.title || state.activeSection)}</span>
+                    <span class="brainstorm-toggle" aria-hidden="true"></span>
+                </div>
+            </button>
+
+            <div class="brainstorm-body">
+                <div class="brainstorm-body-inner">
+                    <div class="brainstorm-column">
+                        <section class="brainstorm-chat-shell">
+                            <div class="brainstorm-chat-header">
+                                <div>
+                                    <div class="eyebrow">Brainstorm Chat</div>
+                                    <div class="muted">Bound to this world. It can ideate from all current canon, entries and anchors.</div>
+                                </div>
+                            </div>
+                            <div class="brainstorm-chat-log">${renderBrainstormMessages(messages)}</div>
+                        </section>
+
+                        <section class="brainstorm-composer">
+                            <div class="brainstorm-toolbar">
+                                <div class="brainstorm-toolbar-group">
+                                    <div>
+                                        <div class="eyebrow">Chat Direction</div>
+                                        <div class="muted">Use this for ideation, restructuring, continuity planning, or batch edits.</div>
+                                    </div>
+                                </div>
+                                <div class="brainstorm-toolbar-group">
+                                    <div class="brainstorm-select-wrap">
+                                        <select id="anvil-brainstorm-model" class="brainstorm-model-select">
+                                            ${BRAINSTORM_MODEL_OPTIONS.map((option) => `
+                                                <option value="${escapeAttribute(option.value)}" ${option.value === state.brainstormModel ? 'selected' : ''}>${escapeHtml(option.label)}</option>
+                                            `).join('')}
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <textarea id="brainstorm-input" placeholder="Tell the AI what you want to explore or change. Example: help me brainstorm three rival city-states, then suggest a batch of new entries and canon updates.">${escapeHtml(state.brainstormDraft || '')}</textarea>
+
+                            <div class="brainstorm-submit-row">
+                                <div class="muted">Current focus: ${escapeHtml(activeEntry?.title || `Section ${state.activeSection}`)}</div>
+                                <button class="button-primary" data-brainstorm-send="true" ${state.brainstormSending ? 'disabled' : ''}>${state.brainstormSending ? 'Thinking...' : 'Send to Brainstorm AI'}</button>
+                            </div>
+                        </section>
+                    </div>
+
+                    <aside class="brainstorm-side">
+                        <section class="brainstorm-patch-panel">
+                            <div class="brainstorm-patch-header">
+                                <div>
+                                    <div class="eyebrow">Planned Changes</div>
+                                    <div class="muted">AI can suggest edits, but they only write into the world after your batch confirmation.</div>
+                                </div>
+                            </div>
+                            <div class="brainstorm-patch-list">${renderBrainstormPatchList(operations)}</div>
+                            <div class="brainstorm-patch-actions">
+                                <div class="muted">${pendingCount > 0 ? `${pendingCount} pending operations are ready to apply.` : 'No pending operations yet.'}</div>
+                                <button class="button-primary" data-brainstorm-apply="true" ${pendingCount === 0 || state.brainstormApplying ? 'disabled' : ''}>${state.brainstormApplying ? 'Applying...' : 'Apply This Batch'}</button>
+                            </div>
+                        </section>
+                    </aside>
+                </div>
+            </div>
+        </div>
+    `;
+
+    enhanceCustomSelect(dom.brainstormPanel.querySelector('#anvil-brainstorm-model'));
+    bindBrainstormPanelEvents();
+    syncBrainstormExpandedUi();
+
+    const log = dom.brainstormPanel.querySelector('.brainstorm-chat-log');
+    if (log) {
+        requestAnimationFrame(() => {
+            log.scrollTop = log.scrollHeight;
+        });
+    }
+}
+
+function renderBrainstormMessages(messages) {
+    if (state.brainstormLoading) {
+        return `
+            <div class="brainstorm-empty">
+                <div class="brainstorm-thinking">
+                    <span>Loading world session</span>
+                    <span class="brainstorm-thinking-dots"><span></span><span></span><span></span></span>
+                </div>
+            </div>
+        `;
+    }
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+        return `
+            <div class="brainstorm-empty">
+                <div class="eyebrow">No brainstorm yet</div>
+                <div>Start with a goal, tension, redesign direction, or vague vibe. The AI will brainstorm from this world's existing material and can return a batch of proposed edits.</div>
+            </div>
+        `;
+    }
+
+    const messageMarkup = messages.map((message) => {
+        const role = message.role || 'assistant';
+        const roleClass = role === 'user'
+            ? 'brainstorm-message-user'
+            : role === 'system'
+                ? 'brainstorm-message-system'
+                : 'brainstorm-message-assistant';
+        const roleLabel = role === 'user' ? 'You' : role === 'system' ? 'System' : 'Anvil AI';
+
+        return `
+            <article class="brainstorm-message ${roleClass}">
+                <div class="brainstorm-message-meta">${escapeHtml(roleLabel)} · ${formatTimestamp(message.createdAt)}</div>
+                <div>${escapeHtml(message.content || '')}</div>
+            </article>
+        `;
+    }).join('');
+
+    const thinkingMarkup = state.brainstormSending
+        ? `
+            <article class="brainstorm-message brainstorm-message-assistant">
+                <div class="brainstorm-message-meta">Anvil AI · Thinking</div>
+                <div class="brainstorm-thinking">
+                    <span>Shaping ideas and possible edits</span>
+                    <span class="brainstorm-thinking-dots"><span></span><span></span><span></span></span>
+                </div>
+            </article>
+        `
+        : '';
+
+    return `${messageMarkup}${thinkingMarkup}`;
+}
+
+function renderBrainstormPatchList(operations) {
+    if (!Array.isArray(operations) || operations.length === 0) {
+        return `
+            <div class="brainstorm-side-empty">
+                <div class="eyebrow">Awaiting proposal</div>
+                <div>The AI can respond with structured operations like world summary updates, new entries, section moves, tag relinks, or entry deletions.</div>
+            </div>
+        `;
+    }
+
+    return operations.map((operation, index) => {
+        const status = operation.status || 'pending';
+        return `
+            <article class="brainstorm-patch-card is-${escapeAttribute(status)}" style="animation-delay: ${Math.min(index * 0.04, 0.28)}s">
+                <div class="brainstorm-patch-topline">
+                    <span class="brainstorm-patch-type">${escapeHtml(operation.type || 'operation')}</span>
+                    <span class="brainstorm-patch-status">${escapeHtml(status)}</span>
+                </div>
+                <div class="brainstorm-patch-desc">${escapeHtml(describeBrainstormOperation(operation))}</div>
+                ${operation.reason ? `<div class="brainstorm-patch-reason">${escapeHtml(operation.reason)}</div>` : ''}
+            </article>
+        `;
+    }).join('');
+}
+
+function bindBrainstormPanelEvents() {
+    dom.brainstormPanel.querySelector('[data-brainstorm-toggle="true"]')?.addEventListener('click', () => {
+        state.brainstormExpanded = !state.brainstormExpanded;
+        syncBrainstormExpandedUi();
+    });
+
+    dom.brainstormPanel.querySelector('#brainstorm-input')?.addEventListener('input', (event) => {
+        state.brainstormDraft = event.target.value;
+    });
+
+    dom.brainstormPanel.querySelector('#brainstorm-input')?.addEventListener('keydown', (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+            event.preventDefault();
+            void sendBrainstormMessage();
+        }
+    });
+
+    dom.brainstormPanel.querySelector('#anvil-brainstorm-model')?.addEventListener('change', (event) => {
+        state.brainstormModel = event.target.value;
+        saveSidebarSettings();
+    });
+
+    dom.brainstormPanel.querySelector('[data-brainstorm-send="true"]')?.addEventListener('click', () => {
+        void sendBrainstormMessage();
+    });
+
+    dom.brainstormPanel.querySelector('[data-brainstorm-apply="true"]')?.addEventListener('click', () => {
+        void applyBrainstormPatch();
+    });
+}
+
+function syncBrainstormExpandedUi() {
+    if (!dom.brainstormPanel) return;
+    dom.brainstormPanel.classList.toggle('is-expanded', state.brainstormExpanded);
+    dom.brainstormPanel.classList.toggle('is-collapsed', !state.brainstormExpanded);
+    dom.brainstormPanel.querySelector('[data-brainstorm-toggle="true"]')?.setAttribute('aria-expanded', state.brainstormExpanded ? 'true' : 'false');
+}
+
+function describeBrainstormOperation(operation) {
+    if (!operation || !operation.type) return 'Unknown operation';
+
+    if (operation.type === 'updateWorldFields') {
+        return `Update world fields: ${Object.keys(operation.fields || {}).join(', ') || 'world metadata'}`;
+    }
+
+    if (operation.type === 'createEntry') {
+        return `Create entry "${operation.entry?.title || 'Untitled Entry'}" in ${operation.section || 'World'}`;
+    }
+
+    if (operation.type === 'updateEntryFields') {
+        return `Update entry ${operation.entryId || operation.titleHint || 'unknown'}: ${Object.keys(operation.fields || {}).join(', ') || 'content'}`;
+    }
+
+    if (operation.type === 'deleteEntry') {
+        return `Delete entry ${operation.entryId || operation.titleHint || 'unknown'}`;
+    }
+
+    if (operation.type === 'moveEntrySection') {
+        return `Move entry ${operation.entryId || operation.titleHint || 'unknown'} to ${operation.toSection || 'another section'}`;
+    }
+
+    if (operation.type === 'setEntryLinks') {
+        return `Replace links for ${operation.entryId || operation.titleHint || 'unknown'} with ${Array.isArray(operation.links) ? operation.links.length : 0} target(s)`;
+    }
+
+    if (operation.type === 'setEntryTags') {
+        return `Replace tags for ${operation.entryId || operation.titleHint || 'unknown'} with ${(operation.tags || []).join(', ') || 'no tags'}`;
+    }
+
+    return operation.type;
 }
 
 function renderImageTile(image, index = 0) {
@@ -1230,6 +1623,23 @@ function getTextGenerationConfig() {
     };
 }
 
+function getBrainstormGenerationConfig() {
+    const model = state.brainstormModel || 'gpt-4o-mini';
+    if (model.startsWith('deepseek')) {
+        return {
+            model,
+            apiUrl: config.urlDeepseek,
+            apiKey: config.apikeyDeepseek
+        };
+    }
+
+    return {
+        model,
+        apiUrl: config.urlGPT,
+        apiKey: config.apikeyGPT
+    };
+}
+
 function getImageGenerationConfig() {
     return {
         model: dom.imageModel?.value || 'gpt-image-1',
@@ -1237,6 +1647,178 @@ function getImageGenerationConfig() {
         apiKey: config.apikeyPainter,
         size: getResolution(dom.imageRatio?.value || '1:1', dom.imageQuality?.value || '1024')
     };
+}
+
+async function runWorldOverviewGeneration(mode) {
+    if (!state.currentWorld || state.worldHeroAiLoading) return;
+
+    const textConfig = getTextGenerationConfig();
+    if (!textConfig.apiUrl || !textConfig.apiKey) {
+        alert('Please configure your text model API in the settings.');
+        return;
+    }
+
+    const userPrompt = state.worldHeroAiPrompt.trim();
+    state.currentWorld.worldHeroAiPreset = {
+        ...(state.currentWorld.worldHeroAiPreset || {}),
+        prompt: userPrompt
+    };
+
+    state.worldHeroAiLoading = true;
+    state.worldHeroAiResult = 'Generating world overview...';
+    renderWorldHero();
+
+    const action = mode === 'summary' ? 'rewrite' : mode === 'canon-expand' ? 'expand' : 'rewrite';
+
+    try {
+        const response = await fetch('/gpt/anvil/generate/text', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                apiUrl: textConfig.apiUrl,
+                apiKey: textConfig.apiKey,
+                model: textConfig.model,
+                world: state.currentWorld,
+                sectionName: 'World',
+                entryId: null,
+                action,
+                userPrompt: userPrompt || (mode === 'summary'
+                    ? 'Generate a compelling world overview for this setting.'
+                    : mode === 'canon-expand'
+                        ? 'Expand the canon and rules of this world in a coherent way.'
+                        : 'Rewrite the canon context into a cleaner, stronger, more cohesive version.')
+            })
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error?.message || data.error || `HTTP error! status: ${response.status}`);
+        }
+
+        const generatedText = String(data.text || '').trim();
+        state.worldHeroAiResult = generatedText || 'No text was returned.';
+
+        if (mode === 'summary') {
+            state.currentWorld.summary = generatedText;
+        } else if (mode === 'canon-expand') {
+            state.currentWorld.canonContext = [state.currentWorld.canonContext, generatedText].filter(Boolean).join('\n\n');
+        } else {
+            state.currentWorld.canonContext = generatedText;
+        }
+
+        pushActivity(`Generated ${mode} for world overview`, 'world_ai_generated');
+        queueSaveCurrentWorld();
+        renderWorldHero();
+    } catch (error) {
+        console.error('Failed world overview generation:', error);
+        state.worldHeroAiResult = `World overview generation failed: ${error.message}`;
+        renderWorldHero();
+    } finally {
+        state.worldHeroAiLoading = false;
+        renderWorldHero();
+    }
+}
+
+async function sendBrainstormMessage() {
+    if (!state.currentWorld || state.brainstormSending) return;
+
+    const userMessage = state.brainstormDraft.trim();
+    if (!userMessage) {
+        alert('Give the brainstorm AI a direction first.');
+        return;
+    }
+
+    const textConfig = getBrainstormGenerationConfig();
+    if (!textConfig.apiUrl || !textConfig.apiKey) {
+        alert('Please configure your text model API in the settings.');
+        return;
+    }
+
+    state.brainstormSending = true;
+    state.brainstormExpanded = true;
+    renderBrainstormPanel();
+
+    try {
+        const response = await fetch('/gpt/anvil/brainstorm/chat', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                worldId: state.currentWorld.id,
+                apiUrl: textConfig.apiUrl,
+                apiKey: textConfig.apiKey,
+                model: textConfig.model,
+                message: userMessage,
+                activeSection: state.activeSection,
+                activeEntryId: state.activeEntryId
+            })
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error?.message || data.error || `HTTP error! status: ${response.status}`);
+        }
+
+        setBrainstormSession(data.session || createEmptyBrainstormSession(state.currentWorld.id));
+        state.brainstormDraft = '';
+        state.brainstormPendingPatch = Array.isArray(data.proposedOperations)
+            ? data.proposedOperations
+            : getBrainstormSession().lastProposedOperations || [];
+        state.brainstormExpanded = true;
+        renderBrainstormPanel();
+    } catch (error) {
+        console.error('Failed Anvil brainstorm chat:', error);
+        alert(`Brainstorm request failed: ${error.message}`);
+    } finally {
+        state.brainstormSending = false;
+        renderBrainstormPanel();
+    }
+}
+
+async function applyBrainstormPatch() {
+    if (!state.currentWorld || state.brainstormApplying) return;
+
+    const operations = (state.brainstormPendingPatch || []).filter((operation) => operation.status !== 'applied' && operation.status !== 'rejected');
+    if (operations.length === 0) return;
+
+    state.brainstormApplying = true;
+    renderBrainstormPanel();
+
+    try {
+        const response = await fetch('/gpt/anvil/brainstorm/apply', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                worldId: state.currentWorld.id,
+                operations
+            })
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || `HTTP error! status: ${response.status}`);
+        }
+
+        state.currentWorld = ensureWorldShape(data.world);
+        upsertWorldSummary(state.currentWorld);
+        state.activeSection = state.currentWorld.sections[state.activeSection] ? state.activeSection : 'World';
+        ensureActiveEntry();
+        setBrainstormSession(data.session || createEmptyBrainstormSession(state.currentWorld.id));
+        state.brainstormPendingPatch = getBrainstormSession().lastProposedOperations || [];
+        state.brainstormExpanded = true;
+        renderAll();
+    } catch (error) {
+        console.error('Failed to apply Anvil brainstorm patch:', error);
+        alert(`Applying brainstorm changes failed: ${error.message}`);
+    } finally {
+        state.brainstormApplying = false;
+        renderBrainstormPanel();
+    }
 }
 
 async function runTextGeneration(action) {
@@ -1543,6 +2125,16 @@ function openLightbox(src, caption) {
 
 function closeLightbox() {
     dom.lightbox?.classList.remove('active');
+}
+
+function formatTimestamp(value) {
+    if (!value) return 'Just now';
+
+    try {
+        return new Date(value).toLocaleString();
+    } catch (_error) {
+        return 'Just now';
+    }
 }
 
 function escapeHtml(value) {

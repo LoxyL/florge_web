@@ -133,6 +133,7 @@ input[type="search"]::-webkit-search-results-decoration {
 .button-ghost,
 .button-primary,
 .button-danger,
+.brainstorm-header,
 .asset-chip button,
 .image-tile-action,
 .lightbox-close {
@@ -350,6 +351,8 @@ input[type="search"]::-webkit-search-results-decoration {
   border-radius: 28px;
   position: relative;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
   background:
     linear-gradient(135deg, rgba(10, 16, 18, 0.9) 0%, rgba(18, 46, 39, 0.72) 100%),
     rgba(255, 255, 255, 0.03);
@@ -368,6 +371,8 @@ input[type="search"]::-webkit-search-results-decoration {
 
 .world-hero.is-expanded {
   min-height: 72px;
+  max-height: min(78vh, calc(100dvh - 140px));
+  overflow: hidden;
 }
 
 .world-hero-strip {
@@ -375,6 +380,7 @@ input[type="search"]::-webkit-search-results-decoration {
   z-index: 1;
   width: 100%;
   min-height: 72px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -476,16 +482,27 @@ input[type="search"]::-webkit-search-results-decoration {
   display: grid;
   grid-template-rows: 0fr;
   transition: grid-template-rows 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  min-height: 0;
 }
 
 .world-hero.is-expanded .world-hero-panel-wrapper {
   grid-template-rows: 1fr;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .world-hero-panel {
   overflow: hidden;
   position: relative;
   z-index: 1;
+  min-height: 0;
+}
+
+.world-hero.is-expanded .world-hero-panel {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .world-hero::before {
@@ -544,6 +561,17 @@ input[type="search"]::-webkit-search-results-decoration {
   gap: 12px;
   padding: 18px;
   min-height: 0;
+}
+
+.world-ai-panel {
+  margin-top: 4px;
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .world-name-row,
@@ -728,6 +756,494 @@ input[type="search"]::-webkit-search-results-decoration {
   flex-direction: column;
   gap: 14px;
   overflow: hidden;
+}
+
+.brainstorm-panel {
+  position: absolute;
+  left: 0;
+  right: 110px;
+  bottom: 0;
+  top: calc(100% - 116px);
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 28px;
+  background:
+    linear-gradient(180deg, rgba(11, 16, 20, 0.94) 0%, rgba(8, 12, 16, 0.98) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.3);
+  z-index: 12;
+  transition:
+    top 0.34s cubic-bezier(0.4, 0, 0.2, 1),
+    right 0.34s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.28s ease,
+    box-shadow 0.28s ease,
+    border-radius 0.28s ease;
+}
+
+.brainstorm-panel.is-expanded {
+  top: 0;
+  right: 0;
+  border-color: rgba(37, 194, 134, 0.2);
+  box-shadow: 0 24px 52px rgba(0, 0, 0, 0.38);
+}
+
+.brainstorm-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at left top, rgba(17, 156, 110, 0.14), transparent 30%),
+    radial-gradient(circle at right bottom, rgba(157, 243, 208, 0.08), transparent 24%);
+  opacity: 0.9;
+}
+
+.brainstorm-panel-shell {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 100%;
+}
+
+.brainstorm-panel.is-expanded .brainstorm-panel-shell {
+  min-height: 100%;
+}
+
+.brainstorm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 22px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  transition: background 0.25s ease, border-color 0.25s ease;
+}
+
+.brainstorm-header:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.brainstorm-panel.is-collapsed .brainstorm-header {
+  min-height: 100%;
+  border-bottom-color: transparent;
+}
+
+.brainstorm-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.brainstorm-heading-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.brainstorm-heading-copy strong {
+  font-size: 18px;
+  color: #fff;
+}
+
+.brainstorm-heading-copy span:last-child {
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 12px;
+}
+
+.brainstorm-orb {
+  width: 44px;
+  height: 44px;
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.6), transparent 24%),
+    linear-gradient(135deg, rgba(17, 156, 110, 0.95), rgba(24, 186, 129, 0.55));
+  box-shadow: inset 0 1px 4px rgba(255, 255, 255, 0.2), 0 10px 24px rgba(16, 156, 110, 0.25);
+}
+
+.brainstorm-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.brainstorm-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+}
+
+.brainstorm-toggle {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  position: relative;
+  transition: background 0.25s ease, box-shadow 0.25s ease;
+}
+
+/* 纯三角形：收起 = 朝上（向上展开）；展开 = 朝下（收回底栏），不依赖 rotate 容易搞反 */
+.brainstorm-toggle::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  transform: translate(-50%, -50%);
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-bottom: 9px solid #9df3d0;
+  border-top: none;
+  transition: border-bottom-color 0.25s ease, border-top-color 0.25s ease, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.brainstorm-panel.is-expanded .brainstorm-toggle {
+  background: rgba(17, 156, 110, 0.24);
+  box-shadow: 0 0 16px rgba(17, 156, 110, 0.26);
+}
+
+.brainstorm-panel.is-expanded .brainstorm-toggle::before {
+  border-bottom: none;
+  border-top: 9px solid #ffffff;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+}
+
+.brainstorm-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  min-height: 0;
+}
+
+.brainstorm-panel.is-expanded .brainstorm-body {
+  grid-template-rows: 1fr;
+}
+
+.brainstorm-body-inner {
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.9fr);
+  gap: 16px;
+  padding: 0 22px 22px;
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 0.28s ease, transform 0.28s ease;
+}
+
+.brainstorm-panel.is-expanded .brainstorm-body-inner {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 0.08s;
+}
+
+.brainstorm-column,
+.brainstorm-side {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.brainstorm-chat-shell,
+.brainstorm-composer,
+.brainstorm-patch-panel,
+.brainstorm-empty {
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.brainstorm-chat-shell,
+.brainstorm-patch-panel {
+  padding: 18px;
+}
+
+.brainstorm-chat-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.brainstorm-chat-header,
+.brainstorm-patch-header,
+.brainstorm-composer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.brainstorm-chat-log {
+  flex: 1 1 auto;
+  min-height: 180px;
+  max-height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-right: 4px;
+}
+
+.brainstorm-message {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(780px, 92%);
+  padding: 14px 16px;
+  border-radius: 20px;
+  line-height: 1.6;
+  font-size: 13px;
+  white-space: pre-wrap;
+  animation: fadeInSlideUp 0.32s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.brainstorm-message-user {
+  align-self: flex-end;
+  background: linear-gradient(135deg, rgba(17, 156, 110, 0.28), rgba(14, 89, 63, 0.55));
+  border: 1px solid rgba(37, 194, 134, 0.24);
+}
+
+.brainstorm-message-assistant {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.brainstorm-message-system {
+  align-self: center;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.72);
+  max-width: 100%;
+}
+
+.brainstorm-message-meta {
+  color: rgba(255, 255, 255, 0.56);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.brainstorm-empty,
+.brainstorm-side-empty {
+  padding: 18px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.brainstorm-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brainstorm-thinking-dots {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.brainstorm-thinking-dots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #9df3d0;
+  opacity: 0.35;
+  animation: brainstormPulse 1.1s infinite ease-in-out;
+}
+
+.brainstorm-thinking-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.brainstorm-thinking-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes brainstormPulse {
+  0%, 80%, 100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+.brainstorm-composer {
+  padding: 16px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.brainstorm-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.brainstorm-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.brainstorm-select-wrap {
+  min-width: 220px;
+}
+
+.brainstorm-composer textarea {
+  width: 100%;
+  min-height: 120px;
+  resize: none;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: rgba(7, 10, 13, 0.86);
+  color: #fff;
+  padding: 14px 16px;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.brainstorm-composer textarea:focus {
+  border-color: rgba(37, 194, 134, 0.8);
+  box-shadow: 0 0 0 3px rgba(37, 194, 134, 0.18);
+}
+
+.brainstorm-submit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.brainstorm-patch-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.brainstorm-patch-list {
+  min-height: 0;
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 4px;
+}
+
+.brainstorm-patch-card {
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: fadeInSlideUp 0.35s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.brainstorm-patch-card.is-pending {
+  border-color: rgba(37, 194, 134, 0.22);
+}
+
+.brainstorm-patch-card.is-applied {
+  border-color: rgba(132, 225, 188, 0.14);
+  background: rgba(17, 156, 110, 0.08);
+}
+
+.brainstorm-patch-card.is-rejected {
+  border-color: rgba(190, 55, 77, 0.24);
+  background: rgba(190, 55, 77, 0.08);
+}
+
+.brainstorm-patch-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.brainstorm-patch-type {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9df3d0;
+}
+
+.brainstorm-patch-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 11px;
+}
+
+.brainstorm-patch-card.is-pending .brainstorm-patch-status {
+  background: rgba(17, 156, 110, 0.14);
+  color: #9df3d0;
+}
+
+.brainstorm-patch-card.is-applied .brainstorm-patch-status {
+  background: rgba(132, 225, 188, 0.12);
+  color: #c1ffe5;
+}
+
+.brainstorm-patch-card.is-rejected .brainstorm-patch-status {
+  background: rgba(190, 55, 77, 0.16);
+  color: #ffb3bf;
+}
+
+.brainstorm-patch-desc {
+  color: rgba(255, 255, 255, 0.92);
+  line-height: 1.55;
+}
+
+.brainstorm-patch-reason {
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.brainstorm-patch-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.brainstorm-panel .custom-select-trigger {
+  min-height: 42px;
 }
 
 .section-board-drawer {
@@ -1271,6 +1787,10 @@ input[type="search"]::-webkit-search-results-decoration {
     grid-template-columns: 1fr;
   }
 
+  .brainstorm-body-inner {
+    grid-template-columns: 1fr;
+  }
+
   .anvil-main {
     overflow-y: auto;
   }
@@ -1302,6 +1822,19 @@ input[type="search"]::-webkit-search-results-decoration {
 
   .entry-studio-main {
     margin-right: 0;
+  }
+
+  .brainstorm-panel {
+    position: relative;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    top: auto;
+    margin-right: 0;
+  }
+
+  .brainstorm-panel.is-expanded {
+    min-height: 420px;
   }
 
   .section-board-drawer {
