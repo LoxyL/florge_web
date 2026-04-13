@@ -532,70 +532,720 @@ function buildAnvilBrainstormWorldDigest(world) {
     };
 }
 
-function buildAnvilBrainstormUserPrompt({ world, message, activeSection = 'World', activeEntryId = '' }) {
+function buildAnvilBrainstormToolSystemPrompt(world, activeSection = 'World', activeEntryId = '') {
     const normalizedWorld = ensureAnvilWorldStructure(world);
     const focusedEntry = activeEntryId
         ? flattenAnvilEntries(normalizedWorld).find((entry) => entry.id === activeEntryId)
         : null;
 
     return [
-        'You are inside Anvil, a worldbuilding studio.',
-        'Your task is to help brainstorm and, when useful, propose explicit world mutations.',
-        'Return valid JSON only.',
-        '',
-        'Expected JSON schema:',
-        JSON.stringify({
-            assistantMessage: 'Plain text only inside this string: no Markdown, no preamble or closing pleasantries.',
-            proposedOperations: [{
-                type: 'updateWorldFields | createEntry | updateEntryFields | deleteEntry | moveEntrySection | setEntryLinks | setEntryTags',
-                reason: 'Why this change helps the world.',
-                fields: {},
-                section: 'World',
-                entry: {},
-                entryId: 'entry_id',
-                toSection: 'Regions',
-                links: ['entry_id'],
-                tags: ['tag']
-            }]
-        }, null, 2),
-        '',
-        'Formatting: assistantMessage is plain prose only (no # headings, **bold**, - bullets, code fences). If the creator asked for one thing only, assistantMessage contains only that.',
-        'Snapshot note: world snapshot text is truncated per field (e.g. entry content ~600 chars, canon ~2400); missing detail may exist in the full world.',
-        '',
-        `Current active section: ${activeSection}`,
-        `Focused entry: ${focusedEntry ? `${focusedEntry.title} (${focusedEntry.id})` : 'None'}`,
-        '',
-        'World snapshot:',
-        JSON.stringify(buildAnvilBrainstormWorldDigest(normalizedWorld), null, 2),
-        '',
-        'Creator request:',
-        message || 'No message provided.'
-    ].join('\n');
+        'You are Anvil Copilot: a conversational worldbuilding partner bound to one world.',
+        'Reply in natural plain text (no Markdown: no # headings, **bold**, -/* bullet lists, code fences, or links). No filler preambles or sign-offs unless the user wants tone.',
+        'You have tools to read the live world and to apply edits. Before changing data you are unsure about, call anvil_get_world_digest. Use anvil_get_entry when you need longer text for one entry id.',
+        'Use anvil_apply_world_operations to persist changes (world fields, create/update/delete/move entries, links, tags, appendEntryImages). Writes apply immediately on the server.',
+        'For updateWorldFields, put name, summary, canonContext, themeKeywords, coverImage either inside a fields object or at the top level of that operation next to type (both are accepted).',
+        'appendEntryImages: { type, entryId, images: [{ url, label }] } — append reference images to an entry; url must be an existing Anvil asset path such as ./anvil_assets/worldId_....',
+        'The user may attach images in chat (vision). Describe what you see when it matters to the world; use tools when they ask you to store those images on an entry.',
+        'You may answer from general knowledge when the user only wants chat; use tools whenever the question depends on this world or when they ask you to change it.',
+        `UI focus — section: ${activeSection}. Focused entry: ${focusedEntry ? `${focusedEntry.title} (${focusedEntry.id})` : 'none'}.`
+    ].join(' ');
 }
 
-function extractJsonObjectFromText(text) {
-    const rawText = String(text || '').trim();
-    if (!rawText) {
-        return null;
-    }
-
-    const fencedMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    const candidate = fencedMatch ? fencedMatch[1].trim() : rawText;
-
-    try {
-        return JSON.parse(candidate);
-    } catch (_error) {
-        const firstBrace = candidate.indexOf('{');
-        const lastBrace = candidate.lastIndexOf('}');
-        if (firstBrace >= 0 && lastBrace > firstBrace) {
-            try {
-                return JSON.parse(candidate.slice(firstBrace, lastBrace + 1));
-            } catch (_innerError) {
-                return null;
+function getAnvilBrainstormTools() {
+    const sectionsList = ANVIL_SECTION_TEMPLATES.join(', ');
+    return [
+        {
+            type: 'function',
+            function: {
+                name: 'anvil_get_world_digest',
+                description:
+                    'Returns a compact JSON snapshot of the entire world (sections, entries with truncated bodies, canon, theme). Call this to read current lore before answering or editing.',
+                parameters: {
+                    type: 'object',
+                    properties: {}
+                }
+            }
+        },
+        {
+            type: 'function',
+            function: {
+                name: 'anvil_get_entry',
+                description:
+                    'Returns one entry with longer content (still capped). Use entry id values from anvil_get_world_digest.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        entry_id: { type: 'string', description: 'Entry id' }
+                    },
+                    required: ['entry_id']
+                }
+            }
+        },
+        {
+            type: 'function',
+            function: {
+                name: 'anvil_apply_world_operations',
+                description: `Apply structured mutations immediately. Operation objects use field "type" as one of: updateWorldFields, createEntry, updateEntryFields, deleteEntry, moveEntrySection, setEntryLinks, setEntryTags, appendEntryImages. Sections must be one of: ${sectionsList}. For updateWorldFields use fields: { name, summary, canonContext, themeKeywords, coverImage } OR put those keys at the operation root alongside type. For createEntry use section plus entry: { title, summary, content, status, ... } OR put title/summary/content/status at the operation root. For updateEntryFields use entryId and fields. For moveEntrySection use entryId and toSection. For appendEntryImages use entryId and images: [{ url, label }]. The tool result ok is false when nothing was applied (check applied/rejected counts).`,
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        operations: {
+                            type: 'array',
+                            description: 'List of operation objects; each must include type and the ids/fields required for that type.',
+                            items: { type: 'object' }
+                        }
+                    },
+                    required: ['operations']
+                }
             }
         }
+    ];
+}
+
+function stripChatMessageForApi(msg) {
+    if (!msg || typeof msg !== 'object') {
+        return msg;
+    }
+
+    if (msg.role === 'tool') {
+        return {
+            role: 'tool',
+            tool_call_id: msg.tool_call_id,
+            content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content ?? '')
+        };
+    }
+
+    if (msg.role === 'user' && Array.isArray(msg.content)) {
+        return {
+            role: 'user',
+            content: msg.content
+        };
+    }
+
+    const out = { role: msg.role };
+    if (msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+        out.tool_calls = msg.tool_calls;
+        out.content = msg.content != null && msg.content !== '' ? msg.content : null;
+    } else {
+        out.content = msg.content != null ? String(msg.content) : '';
+    }
+
+    return out;
+}
+
+async function readLocalAnvilAssetAsDataUrl(assetRef) {
+    const assetPath = resolveAnvilAssetPath(assetRef);
+    if (!assetPath) {
         return null;
     }
+
+    try {
+        const buf = await fsPromises.readFile(assetPath);
+        const ext = path.extname(assetPath).toLowerCase();
+        let mime = 'image/png';
+        if (ext === '.jpg' || ext === '.jpeg') mime = 'image/jpeg';
+        else if (ext === '.webp') mime = 'image/webp';
+        else if (ext === '.gif') mime = 'image/gif';
+        return `data:${mime};base64,${buf.toString('base64')}`;
+    } catch (_err) {
+        return null;
+    }
+}
+
+async function prepareBrainstormMessagesForProvider(messages) {
+    if (!Array.isArray(messages)) {
+        return [];
+    }
+
+    const out = [];
+
+    for (const msg of messages) {
+        if (!msg || typeof msg !== 'object') continue;
+
+        if (msg.role === 'user' && Array.isArray(msg.content)) {
+            const nextParts = [];
+            for (const part of msg.content) {
+                if (!part || typeof part !== 'object') continue;
+                if (part.type === 'text') {
+                    nextParts.push({ type: 'text', text: String(part.text ?? '') });
+                } else if (part.type === 'image_url' && part.image_url && part.image_url.url) {
+                    const u = String(part.image_url.url);
+                    if (u.startsWith('data:') || /^https?:\/\//i.test(u)) {
+                        nextParts.push({ type: 'image_url', image_url: { url: u } });
+                    } else {
+                        const dataUrl = await readLocalAnvilAssetAsDataUrl(u);
+                        if (dataUrl) {
+                            nextParts.push({ type: 'image_url', image_url: { url: dataUrl } });
+                        }
+                    }
+                }
+            }
+            out.push({
+                ...msg,
+                content: nextParts.length ? nextParts : [{ type: 'text', text: '' }]
+            });
+        } else {
+            out.push(msg);
+        }
+    }
+
+    return out;
+}
+
+function buildBrainstormUserOpenAiMessage(userText, attachmentUrls = []) {
+    const urls = safeArray(attachmentUrls)
+        .map((u) => String(u || '').trim())
+        .filter(Boolean);
+    const text = String(userText || '').trim();
+    if (!urls.length) {
+        return { role: 'user', content: text };
+    }
+
+    const parts = [];
+    if (text) {
+        parts.push({ type: 'text', text });
+    } else {
+        parts.push({ type: 'text', text: 'The user attached image(s) for you to consider.' });
+    }
+
+    for (const url of urls) {
+        parts.push({ type: 'image_url', image_url: { url } });
+    }
+
+    return { role: 'user', content: parts };
+}
+
+async function executeAnvilBrainstormToolAsync(worldHolder, worldId, toolName, argsJson) {
+    let args = {};
+    try {
+        args = JSON.parse(typeof argsJson === 'string' && argsJson.trim() ? argsJson : '{}');
+    } catch (parseError) {
+        return JSON.stringify({
+            ok: false,
+            error: 'invalid_json_arguments',
+            message: String(parseError.message || parseError)
+        });
+    }
+
+    const world = worldHolder.world;
+
+    if (toolName === 'anvil_get_world_digest') {
+        return JSON.stringify(buildAnvilBrainstormWorldDigest(world));
+    }
+
+    if (toolName === 'anvil_get_entry') {
+        const entryId = String(args.entry_id || args.entryId || '').trim();
+        if (!entryId) {
+            return JSON.stringify({ ok: false, error: 'missing_entry_id' });
+        }
+
+        const entry = findAnvilEntryById(world, entryId);
+        if (!entry) {
+            return JSON.stringify({ ok: false, error: 'entry_not_found', entry_id: entryId });
+        }
+
+        return JSON.stringify({
+            id: entry.id,
+            section: entry.section,
+            title: entry.title,
+            status: entry.status,
+            summary: entry.summary || '',
+            content: truncateText(entry.content || '', 12000),
+            tags: safeArray(entry.tags),
+            links: safeArray(entry.links),
+            styleKeywords: safeArray(entry.styleKeywords),
+            images: safeArray(entry.images).map((image) => ({
+                id: image.id,
+                label: image.label,
+                url: image.url
+            }))
+        });
+    }
+
+    if (toolName === 'anvil_apply_world_operations') {
+        const operations = safeArray(args.operations);
+        if (!operations.length) {
+            return JSON.stringify({ ok: false, error: 'no_operations' });
+        }
+
+        const { world: nextWorld, appliedOperations } = applyAnvilOperations(world, operations);
+        const appliedCount = appliedOperations.filter((op) => op.status === 'applied').length;
+        const rejectedCount = appliedOperations.filter((op) => op.status === 'rejected').length;
+
+        if (appliedCount > 0) {
+            worldHolder.world = ensureAnvilWorldStructure(nextWorld);
+            worldHolder.world = await saveAnvilWorld(worldHolder.world);
+            worldHolder.mutated = true;
+        }
+
+        return JSON.stringify({
+            ok: appliedCount > 0,
+            applied: appliedCount,
+            rejected: rejectedCount,
+            details: appliedOperations.map((operation) => ({
+                type: operation.type,
+                status: operation.status,
+                entryId: operation.entryId,
+                reason: operation.reason || operation.titleHint
+            }))
+        });
+    }
+
+    return JSON.stringify({ ok: false, error: 'unknown_tool', tool: toolName || '' });
+}
+
+async function runAnvilBrainstormWithTools({
+    apiUrl,
+    apiKey,
+    model,
+    worldId,
+    userOpenAiMessage,
+    openAiMessages = [],
+    activeSection = 'World',
+    activeEntryId = ''
+}) {
+    const worldHolder = {
+        world: await loadAnvilWorld(worldId),
+        mutated: false
+    };
+
+    if (!worldHolder.world) {
+        return {
+            error: 'World not found.',
+            openAiMessages,
+            finalAssistantText: '',
+            world: null,
+            mutated: false,
+            aiTurnLog: [],
+            displayBlocks: []
+        };
+    }
+
+    const systemContent = buildAnvilBrainstormToolSystemPrompt(worldHolder.world, activeSection, activeEntryId);
+    const nextOpenAi = [...safeArray(openAiMessages), userOpenAiMessage];
+    const MAX_STEPS = 20;
+    const aiTurnLog = [];
+    const displayBlocks = [];
+
+    for (let step = 0; step < MAX_STEPS; step += 1) {
+        const messagesForApi = (
+            await prepareBrainstormMessagesForProvider([{ role: 'system', content: systemContent }, ...nextOpenAi])
+        ).map(stripChatMessageForApi);
+        const payload = {
+            model,
+            stream: false,
+            max_tokens: 4096,
+            messages: messagesForApi,
+            tools: getAnvilBrainstormTools(),
+            tool_choice: 'auto'
+        };
+
+        const response = await fetch(normalizeChatApiUrl(apiUrl), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json().catch(() => ({}));
+        aiTurnLog.push({ step, request: payload, response: data });
+
+        if (!response.ok) {
+            const errText = data?.error?.message || data?.error || `HTTP ${response.status}`;
+            const errLine = `The model request failed: ${errText}`;
+            displayBlocks.push({ type: 'text', content: errLine });
+            return {
+                error: errText,
+                openAiMessages: nextOpenAi,
+                finalAssistantText: errLine,
+                world: worldHolder.world,
+                mutated: worldHolder.mutated,
+                aiTurnLog,
+                displayBlocks
+            };
+        }
+
+        const assistantMsg = data?.choices?.[0]?.message;
+        if (!assistantMsg) {
+            const emptyLine = 'The model returned an empty message.';
+            displayBlocks.push({ type: 'text', content: emptyLine });
+            return {
+                error: 'empty_response',
+                openAiMessages: nextOpenAi,
+                finalAssistantText: emptyLine,
+                world: worldHolder.world,
+                mutated: worldHolder.mutated,
+                aiTurnLog,
+                displayBlocks
+            };
+        }
+
+        const assistantRecord = {
+            role: 'assistant',
+            content: assistantMsg.content != null ? assistantMsg.content : null
+        };
+
+        if (assistantMsg.tool_calls && assistantMsg.tool_calls.length > 0) {
+            assistantRecord.tool_calls = assistantMsg.tool_calls;
+        }
+
+        nextOpenAi.push(assistantRecord);
+
+        if (assistantMsg.tool_calls && assistantMsg.tool_calls.length > 0) {
+            const preface =
+                typeof assistantMsg.content === 'string' && assistantMsg.content.trim()
+                    ? assistantMsg.content.trim()
+                    : null;
+            if (preface) {
+                displayBlocks.push({ type: 'text', content: preface });
+            }
+            const calls = [];
+            for (const tc of assistantMsg.tool_calls) {
+                const toolName = tc.function?.name;
+                const rawArgs = tc.function?.arguments ?? '{}';
+                const toolResult = await executeAnvilBrainstormToolAsync(worldHolder, worldId, toolName, rawArgs);
+                calls.push({
+                    name: toolName || 'unknown',
+                    callId: tc.id || '',
+                    arguments: rawArgs,
+                    result: toolResult,
+                    state: 'done'
+                });
+                nextOpenAi.push({
+                    role: 'tool',
+                    tool_call_id: tc.id,
+                    content: toolResult
+                });
+            }
+            displayBlocks.push({ type: 'tools', calls });
+            continue;
+        }
+
+        const finalText =
+            typeof assistantMsg.content === 'string' && assistantMsg.content.trim()
+                ? assistantMsg.content.trim()
+                : assistantMsg.content != null
+                  ? String(assistantMsg.content)
+                  : 'Done.';
+
+        displayBlocks.push({ type: 'text', content: finalText });
+        return {
+            error: null,
+            openAiMessages: nextOpenAi,
+            finalAssistantText: finalText,
+            world: worldHolder.world,
+            mutated: worldHolder.mutated,
+            aiTurnLog,
+            displayBlocks
+        };
+    }
+
+    const limitLine = 'Stopped after too many tool rounds; try a shorter request.';
+    displayBlocks.push({ type: 'text', content: limitLine });
+    return {
+        error: 'tool_loop_limit',
+        openAiMessages: nextOpenAi,
+        finalAssistantText: limitLine,
+        world: worldHolder.world,
+        mutated: worldHolder.mutated,
+        aiTurnLog,
+        displayBlocks
+    };
+}
+
+function sendBrainstormSse(res, payload) {
+    if (!res.writableEnded) {
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    }
+}
+
+async function consumeOpenAiChatSseStream(response, { onContentDelta } = {}) {
+    const reader = response.body?.getReader?.();
+    if (!reader) {
+        const fallbackText = await response.text();
+        return {
+            error: `No stream reader: ${fallbackText.slice(0, 400)}`,
+            content: '',
+            tool_calls: null,
+            finish_reason: null
+        };
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let content = '';
+    const toolCallsMerge = {};
+    let finish_reason = null;
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let boundary = buffer.indexOf('\n\n');
+        while (boundary !== -1) {
+            const rawEvent = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            boundary = buffer.indexOf('\n\n');
+
+            for (const line of rawEvent.split('\n')) {
+                const trimmed = line.trim();
+                if (!trimmed.startsWith('data:')) continue;
+                const dataStr = trimmed.slice(5).trim();
+                if (dataStr === '[DONE]') {
+                    continue;
+                }
+
+                let json;
+                try {
+                    json = JSON.parse(dataStr);
+                } catch (_err) {
+                    continue;
+                }
+
+                const choice = json.choices?.[0];
+                if (!choice) continue;
+
+                if (choice.finish_reason) {
+                    finish_reason = choice.finish_reason;
+                }
+
+                const delta = choice.delta;
+                if (!delta) continue;
+
+                if (delta.content) {
+                    content += delta.content;
+                    if (typeof onContentDelta === 'function') {
+                        onContentDelta(delta.content);
+                    }
+                }
+
+                if (delta.tool_calls && Array.isArray(delta.tool_calls)) {
+                    for (const tc of delta.tool_calls) {
+                        const idx = typeof tc.index === 'number' ? tc.index : 0;
+                        if (!toolCallsMerge[idx]) {
+                            toolCallsMerge[idx] = {
+                                id: '',
+                                type: 'function',
+                                function: { name: '', arguments: '' }
+                            };
+                        }
+                        if (tc.id) {
+                            toolCallsMerge[idx].id = tc.id;
+                        }
+                        if (tc.type) {
+                            toolCallsMerge[idx].type = tc.type;
+                        }
+                        if (tc.function?.name) {
+                            toolCallsMerge[idx].function.name += tc.function.name;
+                        }
+                        if (tc.function?.arguments != null) {
+                            toolCallsMerge[idx].function.arguments += String(tc.function.arguments);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    const indices = Object.keys(toolCallsMerge)
+        .map((key) => Number(key))
+        .filter((n) => !Number.isNaN(n))
+        .sort((a, b) => a - b);
+    const tool_calls = indices.length > 0 ? indices.map((i) => toolCallsMerge[i]) : null;
+
+    return { error: null, content, tool_calls, finish_reason };
+}
+
+async function runAnvilBrainstormWithToolsStreaming({
+    res,
+    apiUrl,
+    apiKey,
+    model,
+    worldId,
+    userOpenAiMessage,
+    openAiMessages = [],
+    activeSection = 'World',
+    activeEntryId = ''
+}) {
+    const worldHolder = {
+        world: await loadAnvilWorld(worldId),
+        mutated: false
+    };
+
+    if (!worldHolder.world) {
+        sendBrainstormSse(res, { type: 'error', message: 'World not found.' });
+        return {
+            error: 'World not found.',
+            openAiMessages,
+            finalAssistantText: '',
+            world: null,
+            mutated: false,
+            displayBlocks: []
+        };
+    }
+
+    const systemContent = buildAnvilBrainstormToolSystemPrompt(worldHolder.world, activeSection, activeEntryId);
+    const nextOpenAi = [...safeArray(openAiMessages), userOpenAiMessage];
+    const MAX_STEPS = 20;
+    const displayBlocks = [];
+
+    for (let step = 0; step < MAX_STEPS; step += 1) {
+        const messagesForApi = (
+            await prepareBrainstormMessagesForProvider([{ role: 'system', content: systemContent }, ...nextOpenAi])
+        ).map(stripChatMessageForApi);
+        const payload = {
+            model,
+            stream: true,
+            max_tokens: 4096,
+            messages: messagesForApi,
+            tools: getAnvilBrainstormTools(),
+            tool_choice: 'auto'
+        };
+
+        const response = await fetch(normalizeChatApiUrl(apiUrl), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errText = await response.text().catch(() => '');
+            let parsed = {};
+            try {
+                parsed = JSON.parse(errText);
+            } catch (_e) {
+                parsed = {};
+            }
+            const message = parsed?.error?.message || parsed?.error || errText || `HTTP ${response.status}`;
+            sendBrainstormSse(res, { type: 'error', message: String(message) });
+            const failLine = `The model request failed: ${message}`;
+            displayBlocks.push({ type: 'text', content: failLine });
+            return {
+                error: String(message),
+                openAiMessages: nextOpenAi,
+                finalAssistantText: failLine,
+                world: worldHolder.world,
+                mutated: worldHolder.mutated,
+                displayBlocks
+            };
+        }
+
+        const streamResult = await consumeOpenAiChatSseStream(response, {
+            onContentDelta: (chunk) => {
+                sendBrainstormSse(res, { type: 'delta', text: chunk });
+            }
+        });
+
+        if (streamResult.error) {
+            sendBrainstormSse(res, { type: 'error', message: streamResult.error });
+            displayBlocks.push({ type: 'text', content: streamResult.error });
+            return {
+                error: streamResult.error,
+                openAiMessages: nextOpenAi,
+                finalAssistantText: streamResult.error,
+                world: worldHolder.world,
+                mutated: worldHolder.mutated,
+                displayBlocks
+            };
+        }
+
+        const assistantRecord = {
+            role: 'assistant',
+            content: streamResult.content != null && streamResult.content !== '' ? streamResult.content : null
+        };
+
+        if (streamResult.tool_calls && streamResult.tool_calls.length > 0) {
+            assistantRecord.tool_calls = streamResult.tool_calls;
+        }
+
+        nextOpenAi.push(assistantRecord);
+
+        if (streamResult.tool_calls && streamResult.tool_calls.length > 0) {
+            const preface =
+                typeof streamResult.content === 'string' && streamResult.content.trim()
+                    ? streamResult.content.trim()
+                    : null;
+            if (preface) {
+                displayBlocks.push({ type: 'text', content: preface });
+            }
+            const calls = [];
+            for (const tc of streamResult.tool_calls) {
+                const toolName = tc.function?.name || 'unknown';
+                const rawArgs = tc.function?.arguments ?? '{}';
+                sendBrainstormSse(res, {
+                    type: 'tool',
+                    phase: 'start',
+                    name: toolName,
+                    callId: tc.id || '',
+                    arguments: rawArgs
+                });
+                const toolResult = await executeAnvilBrainstormToolAsync(worldHolder, worldId, toolName, rawArgs);
+                const preview = toolResult.length > 280 ? `${toolResult.slice(0, 280)}…` : toolResult;
+                const resultMax = 6000;
+                const resultForClient =
+                    toolResult.length > resultMax ? `${toolResult.slice(0, resultMax)}…` : toolResult;
+                sendBrainstormSse(res, {
+                    type: 'tool',
+                    phase: 'done',
+                    name: toolName,
+                    callId: tc.id || '',
+                    preview,
+                    result: resultForClient
+                });
+                calls.push({
+                    name: toolName,
+                    callId: tc.id || '',
+                    arguments: rawArgs,
+                    result: toolResult,
+                    state: 'done'
+                });
+                nextOpenAi.push({
+                    role: 'tool',
+                    tool_call_id: tc.id,
+                    content: toolResult
+                });
+            }
+            displayBlocks.push({ type: 'tools', calls });
+
+            sendBrainstormSse(res, { type: 'step', step });
+            continue;
+        }
+
+        const finalText =
+            typeof streamResult.content === 'string' && streamResult.content.trim()
+                ? streamResult.content.trim()
+                : streamResult.content != null
+                  ? String(streamResult.content)
+                  : 'Done.';
+
+        displayBlocks.push({ type: 'text', content: finalText });
+        return {
+            error: null,
+            openAiMessages: nextOpenAi,
+            finalAssistantText: finalText,
+            world: worldHolder.world,
+            mutated: worldHolder.mutated,
+            displayBlocks
+        };
+    }
+
+    const limitMsg = 'Stopped after too many tool rounds; try a shorter request.';
+    sendBrainstormSse(res, { type: 'error', message: limitMsg });
+    displayBlocks.push({ type: 'text', content: limitMsg });
+    return {
+        error: 'tool_loop_limit',
+        openAiMessages: nextOpenAi,
+        finalAssistantText: limitMsg,
+        world: worldHolder.world,
+        mutated: worldHolder.mutated,
+        displayBlocks
+    };
 }
 
 function normalizeBrainstormOperation(operation = {}) {
@@ -608,9 +1258,20 @@ function normalizeBrainstormOperation(operation = {}) {
 
     if (base.type === 'updateWorldFields') {
         const allowedFields = ['name', 'summary', 'canonContext', 'themeKeywords', 'coverImage'];
-        const rawFields = operation.fields && typeof operation.fields === 'object' ? operation.fields : {};
-        const fields = {};
+        const rawFields =
+            operation.fields && typeof operation.fields === 'object' ? { ...operation.fields } : {};
 
+        // Models often put world fields at the operation root instead of under `fields`.
+        for (const key of allowedFields) {
+            if (key in operation && !(key in rawFields)) {
+                rawFields[key] = operation[key];
+            }
+        }
+        if (operation.theme_keywords != null && rawFields.themeKeywords === undefined) {
+            rawFields.themeKeywords = operation.theme_keywords;
+        }
+
+        const fields = {};
         for (const key of allowedFields) {
             if (!(key in rawFields)) continue;
             if (key === 'themeKeywords') {
@@ -625,15 +1286,21 @@ function normalizeBrainstormOperation(operation = {}) {
 
     if (base.type === 'createEntry') {
         const section = ANVIL_SECTION_TEMPLATES.includes(operation.section) ? operation.section : 'World';
-        const entry = createAnvilEntry({
-            title: operation.entry?.title || operation.title || `New ${section} Entry`,
-            summary: operation.entry?.summary || '',
-            content: operation.entry?.content || '',
-            status: operation.entry?.status || 'Seed',
-            tags: normalizeStringArray(operation.entry?.tags),
-            links: normalizeStringArray(operation.entry?.links),
-            styleKeywords: normalizeStringArray(operation.entry?.styleKeywords)
-        }, section);
+        const entrySrc = operation.entry && typeof operation.entry === 'object' ? operation.entry : {};
+        const entry = createAnvilEntry(
+            {
+                title: entrySrc.title || operation.title || `New ${section} Entry`,
+                summary: entrySrc.summary != null ? entrySrc.summary : operation.summary || '',
+                content: entrySrc.content != null ? entrySrc.content : operation.content || '',
+                status: entrySrc.status || operation.status || 'Seed',
+                tags: normalizeStringArray(entrySrc.tags != null ? entrySrc.tags : operation.tags),
+                links: normalizeStringArray(entrySrc.links != null ? entrySrc.links : operation.links),
+                styleKeywords: normalizeStringArray(
+                    entrySrc.styleKeywords != null ? entrySrc.styleKeywords : operation.styleKeywords
+                )
+            },
+            section
+        );
 
         return { ...base, section, entry };
     }
@@ -694,6 +1361,27 @@ function normalizeBrainstormOperation(operation = {}) {
         };
     }
 
+    if (base.type === 'appendEntryImages') {
+        const rawList = safeArray(operation.images);
+        const images = rawList
+            .map((img) => ({
+                id: img.id || `asset_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+                url: String(img.url || '').trim(),
+                label: String(img.label || '').trim() || 'Image',
+                prompt: String(img.prompt || ''),
+                source: String(img.source || 'copilot'),
+                createdAt: typeof img.createdAt === 'number' ? img.createdAt : Date.now()
+            }))
+            .filter((img) => img.url);
+
+        return {
+            ...base,
+            entryId: String(operation.entryId || '').trim(),
+            titleHint: String(operation.titleHint || '').trim(),
+            images
+        };
+    }
+
     return null;
 }
 
@@ -727,12 +1415,31 @@ function applyAnvilOperations(world, operations = []) {
 
     for (const rawOperation of operations) {
         const operation = normalizeBrainstormOperation(rawOperation);
-        if (!operation) continue;
+        if (!operation) {
+            const t = String(rawOperation?.type || '').trim() || 'unknown';
+            appliedOperations.push({
+                id: rawOperation?.id || `op_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+                type: t,
+                status: 'rejected',
+                reason: 'unrecognized_operation_shape',
+                entryId: rawOperation?.entryId || rawOperation?.entry_id || ''
+            });
+            continue;
+        }
 
         const finalizedOperation = { ...operation, status: 'applied' };
 
         if (operation.type === 'updateWorldFields') {
-            Object.assign(nextWorld, operation.fields || {});
+            const patch = operation.fields || {};
+            if (Object.keys(patch).length === 0) {
+                appliedOperations.push({
+                    ...finalizedOperation,
+                    status: 'rejected',
+                    reason: 'updateWorldFields had no fields (put name/summary/etc. in fields{} or at operation root)'
+                });
+                continue;
+            }
+            Object.assign(nextWorld, patch);
             nextWorld.themeKeywords = normalizeStringArray(nextWorld.themeKeywords);
             appliedOperations.push(finalizedOperation);
             continue;
@@ -792,6 +1499,15 @@ function applyAnvilOperations(world, operations = []) {
             appliedOperations.push(finalizedOperation);
             continue;
         }
+
+        if (operation.type === 'appendEntryImages') {
+            const additions = safeArray(operation.images);
+            targetEntry.images = safeArray(targetEntry.images);
+            targetEntry.images = additions.concat(targetEntry.images);
+            targetEntry.updatedAt = Date.now();
+            appliedOperations.push(finalizedOperation);
+            continue;
+        }
     }
 
     nextWorld.updatedAt = Date.now();
@@ -839,6 +1555,7 @@ function createEmptyAnvilBrainstormSession(worldId) {
     return {
         worldId,
         messages: [],
+        openAiMessages: [],
         lastProposedOperations: [],
         updatedAt: 0
     };
@@ -850,12 +1567,25 @@ async function loadAnvilBrainstormSession(worldId) {
         return createEmptyAnvilBrainstormSession(worldId);
     }
 
+    let openAiMessages = safeArray(session.openAiMessages);
+    const messages = safeArray(session.messages);
+
+    if (!openAiMessages.length && messages.length > 0) {
+        openAiMessages = messages
+            .filter((entry) => entry.role === 'user' || entry.role === 'assistant')
+            .map((entry) => ({
+                role: entry.role,
+                content: String(entry.content ?? '')
+            }));
+    }
+
     return {
         ...createEmptyAnvilBrainstormSession(worldId),
         ...session,
         worldId,
-        messages: safeArray(session.messages),
-        lastProposedOperations: safeArray(session.lastProposedOperations)
+        openAiMessages,
+        messages,
+        lastProposedOperations: []
     };
 }
 
@@ -864,6 +1594,7 @@ async function saveAnvilBrainstormSession(session) {
         ...createEmptyAnvilBrainstormSession(session.worldId),
         ...session,
         messages: safeArray(session.messages),
+        openAiMessages: safeArray(session.openAiMessages),
         lastProposedOperations: safeArray(session.lastProposedOperations),
         updatedAt: Date.now()
     };
@@ -1509,6 +2240,22 @@ app.get('/gpt/anvil/brainstorm/session/:worldId', async (req, res) => {
     }
 });
 
+app.post('/gpt/anvil/brainstorm/session/:worldId/clear', async (req, res) => {
+    try {
+        const worldId = req.params.worldId;
+        const world = await loadAnvilWorld(worldId);
+        if (!world) {
+            return res.status(404).json({ error: 'Anvil world not found.' });
+        }
+
+        const nextSession = await saveAnvilBrainstormSession(createEmptyAnvilBrainstormSession(worldId));
+        res.json(nextSession);
+    } catch (error) {
+        console.error('[ERROR][ANVIL] Failed to clear brainstorm session:', error);
+        res.status(500).json({ error: 'Failed to clear brainstorm session.' });
+    }
+});
+
 app.post('/gpt/anvil/brainstorm/chat', async (req, res) => {
     try {
         const {
@@ -1517,6 +2264,7 @@ app.post('/gpt/anvil/brainstorm/chat', async (req, res) => {
             apiKey,
             model,
             message = '',
+            attachmentUrls: rawAttachmentUrls = [],
             activeSection = 'World',
             activeEntryId = ''
         } = req.body || {};
@@ -1529,101 +2277,187 @@ app.post('/gpt/anvil/brainstorm/chat', async (req, res) => {
             return res.status(400).json({ error: 'Missing brainstorm API configuration.' });
         }
 
-        const world = await loadAnvilWorld(worldId);
-        if (!world) {
+        const existingWorld = await loadAnvilWorld(worldId);
+        if (!existingWorld) {
             return res.status(404).json({ error: 'Anvil world not found.' });
         }
 
         const session = await loadAnvilBrainstormSession(worldId);
         const userText = String(message || '').trim();
-        if (!userText) {
-            return res.status(400).json({ error: 'Missing brainstorm message.' });
+        const attachmentUrls = safeArray(rawAttachmentUrls)
+            .map((u) => String(u || '').trim())
+            .filter(Boolean);
+        if (!userText && !attachmentUrls.length) {
+            return res.status(400).json({ error: 'Missing brainstorm message or image attachments.' });
         }
 
-        const requestMessages = [
-            {
-                role: 'system',
-                content: [
-                    'You are a worldbuilding brainstorm partner and structured editor.',
-                    'You can read the entire world snapshot and propose concrete mutations.',
-                    'Respond in strict JSON only.',
-                    'The JSON must contain assistantMessage and proposedOperations.',
-                    'assistantMessage must be plain text only: no Markdown (no #, **, lists with -/*, code fences, links). No preamble or postscript — only the substantive brainstorm reply.',
-                    'Each proposed operation must be safe, specific, and use only the allowed operation types.',
-                    'Do not invent operation types outside the schema.',
-                    'If no edits are needed, return an empty proposedOperations array.'
-                ].join(' ')
-            },
-            {
-                role: 'user',
-                content: buildAnvilBrainstormUserPrompt({
-                    world,
-                    message: userText,
-                    activeSection,
-                    activeEntryId
-                })
-            }
-        ];
+        const userOpenAiMessage = buildBrainstormUserOpenAiMessage(userText, attachmentUrls);
 
-        const response = await fetch(normalizeChatApiUrl(apiUrl), {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({
-                model,
-                stream: false,
-                max_tokens: 2200,
-                messages: requestMessages
-            })
+        const result = await runAnvilBrainstormWithTools({
+            apiUrl,
+            apiKey,
+            model,
+            worldId,
+            userOpenAiMessage,
+            openAiMessages: safeArray(session.openAiMessages),
+            activeSection,
+            activeEntryId
         });
 
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-            return res.status(response.status).json(data);
+        const assistantMessage = result.finalAssistantText || '…';
+        const now = Date.now();
+        const userDisplay = {
+            role: 'user',
+            content: userText,
+            createdAt: now
+        };
+        if (attachmentUrls.length) {
+            userDisplay.attachmentUrls = attachmentUrls;
         }
-
-        const rawAssistantText = extractChatCompletionText(data);
-        const parsed = extractJsonObjectFromText(rawAssistantText) || {};
-        const assistantMessage = String(parsed.assistantMessage || rawAssistantText || '').trim() || 'I reviewed the world and prepared suggestions.';
-        const proposedOperations = safeArray(parsed.proposedOperations)
-            .map((operation) => normalizeBrainstormOperation(operation))
-            .filter(Boolean);
-
         const nextSession = await saveAnvilBrainstormSession({
             ...session,
+            openAiMessages: result.openAiMessages,
             messages: [
                 ...safeArray(session.messages),
-                {
-                    role: 'user',
-                    content: userText,
-                    createdAt: Date.now()
-                },
+                userDisplay,
                 {
                     role: 'assistant',
                     content: assistantMessage,
-                    createdAt: Date.now()
+                    createdAt: now,
+                    blocks: safeArray(result.displayBlocks)
                 }
             ],
-            lastProposedOperations: proposedOperations
+            lastProposedOperations: []
         });
+
+        const lastTurn = result.aiTurnLog.length > 0 ? result.aiTurnLog[result.aiTurnLog.length - 1] : null;
+        const lastRequest = lastTurn?.request;
 
         res.json({
             assistantMessage,
-            proposedOperations,
+            proposedOperations: [],
+            world: result.mutated ? result.world : null,
             session: nextSession,
-            aiOutbound: {
-                model,
-                messages: requestMessages.map((m) => ({
-                    role: m.role,
-                    content: m.content
-                }))
-            }
+            brainstormError: result.error,
+            aiOutbound: lastRequest
+                ? {
+                      model,
+                      messages: lastRequest.messages
+                  }
+                : {
+                      model,
+                      messages: []
+                  }
         });
     } catch (error) {
         console.error('[ERROR][ANVIL] Failed to run brainstorm chat:', error);
         res.status(500).json({ error: 'Failed to run Anvil brainstorm chat.' });
+    }
+});
+
+app.post('/gpt/anvil/brainstorm/chat/stream', async (req, res) => {
+    try {
+        const {
+            worldId,
+            apiUrl,
+            apiKey,
+            model,
+            message = '',
+            attachmentUrls: streamRawAttachments = [],
+            activeSection = 'World',
+            activeEntryId = ''
+        } = req.body || {};
+
+        if (!worldId) {
+            return res.status(400).json({ error: 'Missing worldId.' });
+        }
+
+        if (!apiUrl || !apiKey || !model) {
+            return res.status(400).json({ error: 'Missing brainstorm API configuration.' });
+        }
+
+        const existingWorld = await loadAnvilWorld(worldId);
+        if (!existingWorld) {
+            return res.status(404).json({ error: 'Anvil world not found.' });
+        }
+
+        const session = await loadAnvilBrainstormSession(worldId);
+        const userText = String(message || '').trim();
+        const attachmentUrls = safeArray(streamRawAttachments)
+            .map((u) => String(u || '').trim())
+            .filter(Boolean);
+        if (!userText && !attachmentUrls.length) {
+            return res.status(400).json({ error: 'Missing brainstorm message or image attachments.' });
+        }
+
+        const userOpenAiMessage = buildBrainstormUserOpenAiMessage(userText, attachmentUrls);
+
+        res.status(200);
+        res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache, no-transform');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+
+        if (typeof res.flushHeaders === 'function') {
+            res.flushHeaders();
+        }
+
+        const result = await runAnvilBrainstormWithToolsStreaming({
+            res,
+            apiUrl,
+            apiKey,
+            model,
+            worldId,
+            userOpenAiMessage,
+            openAiMessages: safeArray(session.openAiMessages),
+            activeSection,
+            activeEntryId
+        });
+
+        const assistantMessage = result.finalAssistantText || '…';
+        const now = Date.now();
+        const streamUserDisplay = {
+            role: 'user',
+            content: userText,
+            createdAt: now
+        };
+        if (attachmentUrls.length) {
+            streamUserDisplay.attachmentUrls = attachmentUrls;
+        }
+        const nextSession = await saveAnvilBrainstormSession({
+            ...session,
+            openAiMessages: result.openAiMessages,
+            messages: [
+                ...safeArray(session.messages),
+                streamUserDisplay,
+                {
+                    role: 'assistant',
+                    content: assistantMessage,
+                    createdAt: now,
+                    blocks: safeArray(result.displayBlocks)
+                }
+            ],
+            lastProposedOperations: []
+        });
+
+        sendBrainstormSse(res, {
+            type: 'done',
+            assistantMessage,
+            proposedOperations: [],
+            world: result.world,
+            worldMutated: Boolean(result.mutated),
+            session: nextSession,
+            brainstormError: result.error
+        });
+        res.end();
+    } catch (error) {
+        console.error('[ERROR][ANVIL] Failed to run brainstorm chat stream:', error);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to run Anvil brainstorm chat stream.' });
+        } else {
+            sendBrainstormSse(res, { type: 'error', message: error.message || 'Stream failed.' });
+            res.end();
+        }
     }
 });
 

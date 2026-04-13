@@ -12,33 +12,6 @@ const SECTION_ORDER = [
 ];
 
 const ENTRY_STATUSES = ['Seed', 'Draft', 'Review', 'Locked'];
-const BRAINSTORM_MODEL_OPTIONS = [
-    { value: 'gpt-5.4', label: 'gpt-5.4 — flagship' },
-    { value: 'gpt-5.4-mini', label: 'gpt-5.4-mini — fast 5.x' },
-    { value: 'gpt-5.4-nano', label: 'gpt-5.4-nano — high volume' },
-    { value: 'gpt-4.1', label: 'gpt-4.1' },
-    { value: 'gpt-4.1-mini', label: 'gpt-4.1-mini' },
-    { value: 'gpt-4.1-nano', label: 'gpt-4.1-nano' },
-    { value: 'gpt-4o', label: 'gpt-4o' },
-    { value: 'gpt-4o-mini', label: 'gpt-4o-mini — default' },
-    { value: 'o3', label: 'o3' },
-    { value: 'o3-mini', label: 'o3-mini' },
-    { value: 'o1', label: 'o1' },
-    { value: 'o1-mini', label: 'o1-mini' },
-    { value: 'deepseek-ai/DeepSeek-V3', label: 'DeepSeek V3 (SiliconFlow id)' },
-    { value: 'deepseek-ai/DeepSeek-R1', label: 'DeepSeek R1' },
-    { value: 'deepseek-chat', label: 'deepseek-chat' },
-    { value: 'deepseek-reasoner', label: 'deepseek-reasoner' },
-    { value: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
-    { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
-    { value: 'claude-3-7-sonnet-20250219', label: 'Claude 3.7 Sonnet' },
-    { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
-    { value: 'gemini-2.5-pro', label: 'gemini-2.5-pro' },
-    { value: 'gemini-2.5-flash', label: 'gemini-2.5-flash' },
-    { value: 'gemini-2.0-flash', label: 'gemini-2.0-flash' },
-    { value: 'grok-3', label: 'grok-3' },
-    { value: 'grok-3-mini', label: 'grok-3-mini' }
-];
 
 const state = {
     worlds: [],
@@ -55,11 +28,13 @@ const state = {
     brainstormSessionsByWorldId: {},
     brainstormDraft: '',
     brainstormModel: 'gpt-4o-mini',
-    brainstormPendingPatch: [],
     brainstormSending: false,
     brainstormLoading: false,
-    brainstormApplying: false,
     brainstormExpanded: false,
+    brainstormPendingTurn: null,
+    brainstormTestRunning: false,
+    brainstormAttachments: [],
+    copilotScenarioFixtureUrl: null,
     worldHeroAiPrompt: '',
     worldHeroAiResult: '',
     worldHeroAiLoading: false,
@@ -158,13 +133,30 @@ function loadSidebarSettings() {
         if (!raw) return;
         const settings = JSON.parse(raw);
 
+        state.brainstormModel = settings.brainstormModel || settings.textModel || 'gpt-4o-mini';
+
         if (settings.textModel && dom.textModel) { dom.textModel.value = settings.textModel; dom.textModel.dispatchEvent(new Event('change')); }
         if (settings.imageModel && dom.imageModel) { dom.imageModel.value = settings.imageModel; dom.imageModel.dispatchEvent(new Event('change')); }
         if (settings.imageRatio && dom.imageRatio) { dom.imageRatio.value = settings.imageRatio; dom.imageRatio.dispatchEvent(new Event('change')); }
         if (settings.imageQuality && dom.imageQuality) { dom.imageQuality.value = settings.imageQuality; dom.imageQuality.dispatchEvent(new Event('change')); }
-        state.brainstormModel = settings.brainstormModel || settings.textModel || 'gpt-4o-mini';
     } catch (error) {
         console.error('Failed to load Anvil settings:', error);
+    }
+}
+
+function getBrainstormTextModelOptionsHtml() {
+    return dom.textModel?.innerHTML || '';
+}
+
+function syncBrainstormModelSelectValue(select) {
+    if (!select || !select.options.length) return;
+    select.value = state.brainstormModel;
+    if (select.value !== state.brainstormModel) {
+        const firstVal = select.options[0]?.value;
+        if (firstVal) {
+            state.brainstormModel = firstVal;
+            select.value = firstVal;
+        }
     }
 }
 
@@ -185,6 +177,9 @@ function enhanceCustomSelect(select) {
 
     const wrapper = document.createElement('div');
     wrapper.className = 'custom-select-wrapper';
+    if (select.dataset.selectPlacement === 'up') {
+        wrapper.classList.add('custom-select-placement-up');
+    }
     select.parentNode.insertBefore(wrapper, select);
 
     const trigger = document.createElement('div');
@@ -328,6 +323,7 @@ function createEmptyBrainstormSession(worldId) {
     return {
         worldId,
         messages: [],
+        openAiMessages: [],
         lastProposedOperations: [],
         updatedAt: 0
     };
@@ -349,11 +345,9 @@ function setBrainstormSession(session) {
         ...createEmptyBrainstormSession(session.worldId),
         ...session,
         messages: Array.isArray(session.messages) ? session.messages : [],
+        openAiMessages: Array.isArray(session.openAiMessages) ? session.openAiMessages : [],
         lastProposedOperations: Array.isArray(session.lastProposedOperations) ? session.lastProposedOperations : []
     };
-    if (session.worldId === state.currentWorld?.id) {
-        state.brainstormPendingPatch = state.brainstormSessionsByWorldId[session.worldId].lastProposedOperations;
-    }
 }
 
 async function loadBrainstormSession(worldId) {
@@ -395,7 +389,6 @@ async function loadWorlds() {
 
         state.currentWorld = null;
         state.activeEntryId = null;
-        state.brainstormPendingPatch = [];
         state.brainstormDraft = '';
         state.brainstormExpanded = false;
         renderAll();
@@ -416,8 +409,9 @@ async function selectWorld(worldId) {
         await loadBrainstormSession(worldId);
         state.activeSection = state.currentWorld.sections[state.activeSection] ? state.activeSection : 'World';
         state.worldHeroExpanded = false;
-        state.brainstormExpanded = getBrainstormSession(worldId).messages.length > 0 || state.brainstormPendingPatch.length > 0;
+        state.brainstormExpanded = getBrainstormSession(worldId).messages.length > 0;
         state.brainstormDraft = '';
+        state.brainstormAttachments = [];
         ensureActiveEntry();
         renderAll();
     } catch (error) {
@@ -449,7 +443,7 @@ async function createWorld() {
         setBrainstormSession(createEmptyBrainstormSession(state.currentWorld.id));
         state.brainstormExpanded = true;
         state.brainstormDraft = '';
-        state.brainstormPendingPatch = [];
+        state.brainstormAttachments = [];
         ensureActiveEntry();
         upsertWorldSummary(state.currentWorld);
         renderAll();
@@ -484,7 +478,6 @@ async function deleteCurrentWorld() {
         state.worlds = state.worlds.filter((world) => world.id !== state.currentWorld.id);
         state.currentWorld = null;
         state.activeEntryId = null;
-        state.brainstormPendingPatch = [];
         state.brainstormDraft = '';
 
         if (state.worlds.length > 0) {
@@ -599,7 +592,7 @@ function getEntryPrimaryImage(entry) {
 }
 
 function getWorldHeroCoverImage() {
-    // 仅显示「世界封面」字段；绝不从条目图或 style anchor 自动借用，避免任意条目的图出现在世界概览
+    // World overview strip uses only world.coverImage — never borrow entry or style-anchor images.
     return String(state.currentWorld?.coverImage || '').trim();
 }
 
@@ -1180,8 +1173,9 @@ function renderEntryBoard() {
             state.activeEntryId = element.dataset.entryId;
             state.aiResult = '';
             state.aiContextSummary = null;
-            renderEntryBoard();
+            syncEntryBoardSelection();
             renderEntryStudio();
+            syncBrainstormHeaderMeta();
         });
     });
 }
@@ -1318,22 +1312,876 @@ function renderEntryStudio() {
     bindEntryStudioEvents(entry);
 }
 
+let copilotThreadRefreshTimer = null;
+function scheduleCopilotThreadRefresh() {
+    if (!dom.brainstormPanel || !state.brainstormExpanded) return;
+    clearTimeout(copilotThreadRefreshTimer);
+    copilotThreadRefreshTimer = setTimeout(() => {
+        copilotThreadRefreshTimer = null;
+        refreshCopilotThreadDom();
+    }, 72);
+}
+
+function flushCopilotThreadRefresh() {
+    if (copilotThreadRefreshTimer != null) {
+        clearTimeout(copilotThreadRefreshTimer);
+        copilotThreadRefreshTimer = null;
+    }
+    refreshCopilotThreadDom();
+}
+
+function isBrainstormChatShellMounted() {
+    return Boolean(dom.brainstormPanel?.querySelector('.brainstorm-panel-shell--chat'));
+}
+
+function syncCopilotDockBusyState() {
+    if (!dom.brainstormPanel) return;
+    const sending = state.brainstormSending;
+    const testing = state.brainstormTestRunning;
+    dom.brainstormPanel.querySelector('[data-brainstorm-send="true"]')?.toggleAttribute('disabled', sending);
+    const sendBtn = dom.brainstormPanel.querySelector('[data-brainstorm-send="true"]');
+    if (sendBtn) sendBtn.textContent = sending ? '…' : 'Send';
+    dom.brainstormPanel.querySelector('[data-brainstorm-attach-pick="true"]')?.toggleAttribute('disabled', sending || testing);
+    dom.brainstormPanel.querySelector('[data-copilot-clear-chat="true"]')?.toggleAttribute('disabled', sending || testing);
+    dom.brainstormPanel.querySelector('[data-copilot-self-test="true"]')?.toggleAttribute('disabled', sending || testing);
+}
+
+function syncBrainstormHeaderMeta() {
+    if (!dom.brainstormPanel || !state.currentWorld) return;
+    const session = getBrainstormSession();
+    const messages = Array.isArray(session.messages) ? session.messages : [];
+    const msgCount = messages.length;
+    const activeEntry = getSelectedEntry();
+    const msgsEl = dom.brainstormPanel.querySelector('[data-brainstorm-pill="msgs"]');
+    if (msgsEl) msgsEl.textContent = `${msgCount} msgs`;
+    const ctx = dom.brainstormPanel.querySelector('[data-brainstorm-pill="context"]');
+    if (ctx) {
+        const collapsed = dom.brainstormPanel.classList.contains('is-collapsed');
+        const text = collapsed ? activeEntry?.title || state.activeSection : state.activeSection;
+        ctx.textContent = String(text || '');
+    }
+}
+
+function fillCopilotAttachPreviewSlot() {
+    const slot = dom.brainstormPanel?.querySelector('#copilot-attach-preview-slot');
+    if (!slot) return false;
+    if (!Array.isArray(state.brainstormAttachments) || state.brainstormAttachments.length === 0) {
+        slot.innerHTML = '';
+        return true;
+    }
+    slot.innerHTML = `<div class="copilot-attach-preview" aria-label="Pending images">${state.brainstormAttachments
+        .map(
+            (a, i) => `
+            <div class="copilot-attach-chip" data-brainstorm-attach-index="${i}">
+                <img src="${escapeAttribute(copilotPublicImageSrc(a.url))}" alt="">
+                <button type="button" class="copilot-attach-chip-remove" data-brainstorm-attach-remove="${i}" title="Remove">×</button>
+            </div>`
+        )
+        .join('')}</div>`;
+    slot.querySelectorAll('[data-brainstorm-attach-remove]').forEach((btn) => {
+        btn.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const idx = Number(btn.getAttribute('data-brainstorm-attach-remove'));
+            if (!Number.isNaN(idx) && idx >= 0 && idx < state.brainstormAttachments.length) {
+                state.brainstormAttachments.splice(idx, 1);
+                fillCopilotAttachPreviewSlot();
+            }
+        });
+    });
+    return true;
+}
+
+/**
+ * Refresh world chrome after Copilot changed data. When `serverPersisted` is true, the server already wrote
+ * the world during tool execution — skip scheduling another save to avoid races and redundant POSTs.
+ */
+function patchUiAfterCopilotWorldSync({ serverPersisted = false } = {}) {
+    if (!state.currentWorld) return;
+    renderWorldList();
+    renderSectionList();
+    renderWorldHero();
+    renderEntryBoard();
+    renderEntryStudio();
+    renderSectionBoardPeek(getFilteredEntries());
+    if (!serverPersisted) {
+        state.currentWorld.updatedAt = Date.now();
+        upsertWorldSummary(state.currentWorld);
+        clearTimeout(state.saveTimer);
+        state.saveTimer = setTimeout(() => {
+            void saveCurrentWorld();
+        }, 450);
+    }
+    syncBrainstormHeaderMeta();
+    renderGlobalBusyOverlay();
+}
+
+function syncEntryBoardSelection() {
+    if (!dom.entryBoard) return;
+    dom.entryBoard.querySelectorAll('[data-entry-id]').forEach((element) => {
+        element.classList.toggle('active', element.dataset.entryId === state.activeEntryId);
+    });
+}
+
+function refreshCopilotThreadDom() {
+    if (!dom.brainstormPanel || !state.brainstormExpanded) return;
+    const thread = dom.brainstormPanel.querySelector('.copilot-thread');
+    if (!thread) return;
+    const session = getBrainstormSession();
+    const messages = Array.isArray(session.messages) ? session.messages : [];
+    
+    const wasScrolledToBottom = Math.abs((thread.scrollHeight - thread.scrollTop) - thread.clientHeight) < 10;
+    
+    thread.innerHTML = renderCopilotMessageListHtml(messages, state.brainstormPendingTurn);
+    
+    if (wasScrolledToBottom) {
+        scrollCopilotThreadToBottom();
+    }
+}
+
+let copilotStreamScrollRaf = false;
+function updateCopilotStreamBody(text) {
+    const el = dom.brainstormPanel?.querySelector('[data-copilot-stream-body="true"]');
+    if (el) {
+        el.textContent = text;
+    }
+    if (!copilotStreamScrollRaf) {
+        copilotStreamScrollRaf = true;
+        requestAnimationFrame(() => {
+            copilotStreamScrollRaf = false;
+            scrollCopilotThreadToBottom();
+        });
+    }
+}
+
+function formatCopilotToolArguments(raw) {
+    const s = typeof raw === 'string' ? raw : String(raw ?? '');
+    try {
+        return JSON.stringify(JSON.parse(s), null, 2);
+    } catch (_e) {
+        return s;
+    }
+}
+
+function renderCopilotToolCallRow(call) {
+    const name = escapeHtml(call.name || 'tool');
+    const state = call.state === 'running' ? 'running' : 'done';
+    const argsFormatted = formatCopilotToolArguments(call.arguments || '{}');
+    const resultText = String(call.result ?? call.resultPreview ?? '');
+    const isOpen = state === 'running';
+    return `
+        <div class="copilot-tool-call ${isOpen ? 'is-open' : ''}">
+            <div class="copilot-tool-call-summary" data-tool-toggle="true">
+                <span class="copilot-tool-call-caret" aria-hidden="true"></span>
+                <code class="copilot-tool-call-name">${name}</code>
+                <span class="copilot-tool-call-status copilot-tool-call-status--${state}">${
+                    state === 'running' ? 'Running' : 'Done'
+                }</span>
+            </div>
+            <div class="copilot-tool-call-panel-wrapper">
+                <div class="copilot-tool-call-panel">
+                    <div class="copilot-tool-call-section">
+                        <div class="copilot-tool-call-label">Arguments</div>
+                        <pre class="copilot-tool-call-pre">${escapeHtml(argsFormatted)}</pre>
+                    </div>
+                    <div class="copilot-tool-call-section">
+                        <div class="copilot-tool-call-label">Result</div>
+                        <pre class="copilot-tool-call-pre">${resultText ? escapeHtml(resultText) : '—'}</pre>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+}
+
+function renderCopilotBlocksHtml(blocks) {
+    if (!Array.isArray(blocks) || blocks.length === 0) return '';
+    return blocks
+        .map((block) => {
+            if (block.type === 'text' && block.content != null && String(block.content).length > 0) {
+                return `<div class="copilot-block copilot-block--text">${escapeHtml(block.content)}</div>`;
+            }
+            if (block.type === 'tools' && Array.isArray(block.calls) && block.calls.length > 0) {
+                const rows = block.calls.map((c) => renderCopilotToolCallRow(c)).join('');
+                return `<div class="copilot-tool-stack">${rows}</div>`;
+            }
+            return '';
+        })
+        .filter(Boolean)
+        .join('');
+}
+
+function renderAssistantBubbleInner(message) {
+    const blocksHtml = renderCopilotBlocksHtml(message.blocks);
+    const streamText = message.streamText;
+    let streamHtml = '';
+    const streamSlot = Boolean(streamText) || Boolean(message.streaming);
+    if (streamSlot) {
+        streamHtml = `<div class="copilot-block copilot-block--text" data-copilot-stream-body="true">${escapeHtml(streamText || '')}</div>`;
+    }
+    const hasStack = Boolean(blocksHtml || streamHtml);
+    const legacyContent =
+        !hasStack && message.content
+            ? `<div class="copilot-bubble-body">${escapeHtml(message.content)}</div>`
+            : '';
+    const stackHtml = hasStack ? `<div class="copilot-bubble-stack">${blocksHtml}${streamHtml}</div>` : '';
+    return stackHtml || legacyContent || '<div class="copilot-bubble-body muted">…</div>';
+}
+
+function copilotPublicImageSrc(url) {
+    const u = String(url || '').trim();
+    if (!u) return '';
+    if (u.startsWith('http://') || u.startsWith('https://') || u.startsWith('data:')) return u;
+    return u.replace(/^\.\//, '');
+}
+
+function renderUserCopilotBubbleBody(message) {
+    const urls = Array.isArray(message.attachmentUrls) ? message.attachmentUrls.filter(Boolean) : [];
+    const attachRow =
+        urls.length > 0
+            ? `<div class="copilot-attach-row">${urls
+                  .map(
+                      (u) =>
+                          `<img class="copilot-attach-thumb" src="${escapeAttribute(copilotPublicImageSrc(u))}" alt="" loading="lazy">`
+                  )
+                  .join('')}</div>`
+            : '';
+    const text = String(message.content || '');
+    const textBlock =
+        text.trim().length > 0
+            ? `<div class="copilot-bubble-body">${escapeHtml(text)}</div>`
+            : urls.length > 0
+              ? ''
+              : `<div class="copilot-bubble-body muted">(no text)</div>`;
+    return `${attachRow}${textBlock}`;
+}
+
+function renderCopilotMessageListHtml(messages, pendingTurn) {
+    if (state.brainstormLoading) {
+        return `
+            <div class="copilot-thread-empty">
+                <div class="copilot-typing"><span>Loading session</span><span class="brainstorm-thinking-dots"><span></span><span></span><span></span></span></div>
+            </div>`;
+    }
+
+    const list = Array.isArray(messages) ? [...messages] : [];
+    if (pendingTurn) {
+        list.push({
+            role: 'user',
+            content: pendingTurn.user,
+            attachmentUrls: Array.isArray(pendingTurn.attachmentUrls) ? pendingTurn.attachmentUrls : [],
+            createdAt: Date.now(),
+            pending: true
+        });
+        list.push({
+            role: 'assistant',
+            content: '',
+            blocks: Array.isArray(pendingTurn.blocks) ? pendingTurn.blocks : [],
+            streamText: pendingTurn.streamText || '',
+            createdAt: Date.now(),
+            streaming: Boolean(state.brainstormSending)
+        });
+    }
+
+    if (list.length === 0) {
+        return `
+            <div class="copilot-thread-empty">
+                <div class="copilot-welcome-icon" aria-hidden="true"></div>
+                <h3 class="copilot-welcome-title">World Copilot</h3>
+                <p class="copilot-welcome-text">Ask anything about this world. Replies stream in real time; tools read and update your canon when needed.</p>
+            </div>`;
+    }
+
+    const bubbles = list
+        .map((message, index) => {
+            const role = message.role || 'assistant';
+            const isUser = role === 'user';
+            const isSystem = role === 'system';
+            const bubbleClass = isUser ? 'copilot-bubble copilot-bubble--user' : isSystem ? 'copilot-bubble copilot-bubble--system' : 'copilot-bubble copilot-bubble--assistant';
+            const label = isUser ? 'You' : isSystem ? 'System' : 'Copilot';
+            const body = isUser
+                ? renderUserCopilotBubbleBody(message)
+                : isSystem
+                  ? `<div class="copilot-bubble-body">${escapeHtml(message.content || '')}</div>`
+                  : renderAssistantBubbleInner(message);
+            
+            const isAnimate = index >= list.length - 2;
+
+            return `
+                <div class="copilot-turn ${isUser ? 'copilot-turn--user' : ''} ${isAnimate ? 'copilot-turn--animate' : ''}">
+                    <div class="${bubbleClass}">
+                        <div class="copilot-bubble-meta">${escapeHtml(label)} · ${formatTimestamp(message.createdAt)}</div>
+                        ${body}
+                    </div>
+                </div>`;
+        })
+        .join('');
+
+    return bubbles;
+}
+
+function scrollCopilotThreadToBottom() {
+    const thread = dom.brainstormPanel?.querySelector('.copilot-thread');
+    if (thread) {
+        requestAnimationFrame(() => {
+            thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' });
+        });
+    }
+}
+
+async function readBrainstormSseStream(response, handlers = {}) {
+    const reader = response.body?.getReader();
+    if (!reader) {
+        throw new Error('Streaming not supported in this browser.');
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let donePayload = null;
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let sep = buffer.indexOf('\n\n');
+        while (sep !== -1) {
+            const block = buffer.slice(0, sep);
+            buffer = buffer.slice(sep + 2);
+            sep = buffer.indexOf('\n\n');
+
+            for (const line of block.split('\n')) {
+                const trimmed = line.trim();
+                if (!trimmed.startsWith('data:')) continue;
+                const raw = trimmed.slice(5).trim();
+                if (raw === '[DONE]') continue;
+                let json;
+                try {
+                    json = JSON.parse(raw);
+                } catch {
+                    continue;
+                }
+
+                if (json.type === 'delta' && json.text) {
+                    handlers.onDelta?.(json.text);
+                } else if (json.type === 'tool') {
+                    handlers.onTool?.(json);
+                } else if (json.type === 'step') {
+                    handlers.onStep?.(json);
+                } else if (json.type === 'error') {
+                    handlers.onError?.(json.message || 'Unknown error');
+                } else if (json.type === 'done') {
+                    donePayload = json;
+                    handlers.onDone?.(json);
+                }
+            }
+        }
+    }
+
+    return donePayload;
+}
+
+async function uploadCopilotScenarioFixturePng() {
+    const worldId = state.currentWorld?.id;
+    if (!worldId) return null;
+    const base64 =
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQG/CPcY5QAAAABJRU5ErkJggg==';
+    const binary = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    const blob = new Blob([binary], { type: 'image/png' });
+    const formData = new FormData();
+    formData.append('asset', blob, 'copilot-qa-pixel.png');
+    formData.append('worldId', worldId);
+    const response = await fetch('/gpt/anvil/asset/upload', { method: 'POST', body: formData });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(data.error || `HTTP ${response.status}`);
+    }
+    return data.url;
+}
+
+/** English Scenario: build a self-consistent mini-world (Regions/Factions/Characters/links/tags/move/append image). */
+const COPILOT_SCENARIO_NO_DUP_RULE =
+    '[Deduplication] You MUST call anvil_get_world_digest before ANY createEntry. If an entry with the exact same title already exists in the target section, you are FORBIDDEN to createEntry. You MUST use updateEntryFields on that existing entry ID instead. Repeated test runs must not create duplicate entries.';
+
+const COPILOT_SCENARIO_STEPS = [
+    {
+        id: '0_fixture_png',
+        runOnly: async () => {
+            try {
+                state.copilotScenarioFixtureUrl = await uploadCopilotScenarioFixturePng();
+                console.log('[Scenario Test] Uploaded fixture image:', state.copilotScenarioFixtureUrl);
+            } catch (err) {
+                state.copilotScenarioFixtureUrl = null;
+                console.error('[Scenario Test] Fixture image upload failed (append image step may fail)', err);
+            }
+        }
+    },
+    {
+        id: '1_conversation',
+        prompt:
+            'Please say hello in a short, natural English sentence (no lists or Markdown). This step only verifies the chat flow.',
+        checkReply: (text) => String(text || '').trim().length > 4
+    },
+    {
+        id: '2_world_shell',
+        prompt: [
+            COPILOT_SCENARIO_NO_DUP_RULE,
+            'Automated QA. Scenario: "Amber Shell". Use tools to build the world skeleton in one go.',
+            '1) First, anvil_get_world_digest.',
+            '2) anvil_apply_world_operations with updateWorldFields: name MUST be exactly "QA - Amber Shell"; summary: two sentences about an amber salt-fog trench and an intertidal city-state; canonContext: one sentence highlighting the conflict between the "Salt Crystal Tax" and the "Tide Calendar"; themeKeywords: ["Amber Shell", "Salt Crystal", "Tide"].',
+            '3) World Section: if digest shows NO entry exactly named "Intertidal City Overview", then createEntry. If it exists, only updateEntryFields to maintain a two-sentence summary, a three-sentence content, and Draft status. DO NOT create a second one.',
+            'Reply in short English. The last line MUST be exactly: AMBER_SHELL_OK'
+        ].join('\n'),
+        checkReply: (text) => /AMBER_SHELL_OK\s*$/m.test(String(text || '')),
+        verifyWorld: (world) => {
+            if (!world) return false;
+            const nameOk = String(world.name || '').includes('Amber Shell');
+            const sumOk = String(world.summary || '').includes('salt') || String(world.summary || '').includes('tide');
+            const canonOk = String(world.canonContext || '').includes('salt') || String(world.canonContext || '').includes('tide');
+            const kw = Array.isArray(world.themeKeywords) ? world.themeKeywords.join(' ') : '';
+            const kwOk = kw.includes('salt') || kw.includes('tide') || kw.includes('amber') || kw.includes('Amber');
+            const entries = Array.isArray(world.sections?.World) ? world.sections.World : [];
+            const hubs = entries.filter((e) => String(e.title || '').trim() === 'Intertidal City Overview');
+            return nameOk && sumOk && canonOk && kwOk && hubs.length === 1;
+        }
+    },
+    {
+        id: '3_regions_factions',
+        prompt: [
+            COPILOT_SCENARIO_NO_DUP_RULE,
+            'Still in "QA - Amber Shell". First digest, then anvil_apply_world_operations (can call multiple but try to merge):',
+            '1) Regions: ONLY if NO entry is exactly named "Salt Frost Strait", then createEntry; else updateEntryFields. Summary: two sentences about fjord fog and lighthouse chains. Content: three sentences. Status: Draft.',
+            '2) Factions: ONLY if NO entry is exactly named "Amber Maritime League", then createEntry; else updateEntryFields. Summary: two sentences about escorts and salt tax arbitration. Content: three sentences. Status: Seed.',
+            'The last line MUST be exactly: REGION_FACTION_OK'
+        ].join('\n'),
+        checkReply: (text) => /REGION_FACTION_OK\s*$/m.test(String(text || '')),
+        verifyWorld: (world) => {
+            const regions = Array.isArray(world?.sections?.Regions) ? world.sections.Regions : [];
+            const factions = Array.isArray(world?.sections?.Factions) ? world.sections.Factions : [];
+            const rCount = regions.filter((e) => String(e.title || '').trim() === 'Salt Frost Strait').length;
+            const fCount = factions.filter((e) => String(e.title || '').trim() === 'Amber Maritime League').length;
+            return rCount === 1 && fCount === 1;
+        }
+    },
+    {
+        id: '4_character',
+        prompt: [
+            COPILOT_SCENARIO_NO_DUP_RULE,
+            'Same world. First digest. Characters Section: ONLY if NO entry is exactly named "Ellie Salt-Lamp", then createEntry; if exists, updateEntryFields.',
+            'Summary: two sentences. She is a strait pilot who can read the "false shoreline" refracted by salt fog.',
+            'Content: two paragraphs about her shift rhythm and superstition towards the Tide Calendar. Status: Seed.',
+            'The last line MUST be exactly: CHAR_OK'
+        ].join('\n'),
+        checkReply: (text) => /CHAR_OK\s*$/m.test(String(text || '')),
+        verifyWorld: (world) => {
+            const entries = Array.isArray(world?.sections?.Characters) ? world.sections.Characters : [];
+            const matches = entries.filter((e) => String(e.title || '').trim() === 'Ellie Salt-Lamp');
+            return matches.length === 1;
+        }
+    },
+    {
+        id: '5_links_tags',
+        prompt: [
+            'First anvil_get_world_digest. Find the entry IDs for Regions "Salt Frost Strait" and Characters "Ellie Salt-Lamp".',
+            'Then anvil_apply_world_operations:',
+            '1) setEntryLinks: Set Ellie\'s links to ONLY contain the ID of Salt Frost Strait (you can add Maritime League ID if you wrote it too). It MUST at least contain the Salt Frost Strait ID.',
+            '2) setEntryTags: Set tags for Salt Frost Strait to ["fog", "shipping", "QA"] (order doesn\'t matter).',
+            'The last line MUST be exactly: LINK_TAG_OK'
+        ].join('\n'),
+        checkReply: (text) => /LINK_TAG_OK\s*$/m.test(String(text || '')),
+        verifyWorld: (world) => {
+            const regions = Array.isArray(world?.sections?.Regions) ? world.sections.Regions : [];
+            const chars = Array.isArray(world?.sections?.Characters) ? world.sections.Characters : [];
+            const region = regions.find((e) => String(e.title || '').includes('Salt Frost'));
+            const chr = chars.find((e) => String(e.title || '').includes('Ellie'));
+            if (!region || !chr) return false;
+            const tags = Array.isArray(region.tags) ? region.tags.map(String) : [];
+            const tagOk = tags.includes('fog') && tags.includes('shipping') && tags.includes('QA');
+            const links = Array.isArray(chr.links) ? chr.links : [];
+            const linkOk = links.includes(region.id);
+            return tagOk && linkOk;
+        }
+    },
+    {
+        id: '6_edit_region',
+        prompt: [
+            'Use anvil_get_entry to read the long text of "Salt Frost Strait" if needed; then use updateEntryFields to modify it:',
+            'Append an English sentence to the summary, which MUST contain the phrase "Night Nav-Light Revision". Add a transition sentence before the first paragraph of content, without deleting existing facts.',
+            'The last line MUST be exactly: REGION_EDIT_OK'
+        ].join('\n'),
+        checkReply: (text) => /REGION_EDIT_OK\s*$/m.test(String(text || '')),
+        verifyWorld: (world) => {
+            const regions = Array.isArray(world?.sections?.Regions) ? world.sections.Regions : [];
+            const region = regions.find((e) => String(e.title || '').includes('Salt Frost Strait'));
+            return Boolean(region && String(region.summary || '').includes('Night Nav-Light Revision'));
+        }
+    },
+    {
+        id: '7_move_entry',
+        prompt: [
+            COPILOT_SCENARIO_NO_DUP_RULE,
+            'First digest. Search the whole world for an entry named exactly "Migration Motion Probe":',
+            'If it does not exist, createEntry in World section (only one); if it exists, DO NOT create a new one, use its ID directly.',
+            'Then moveEntrySection: move that ID to Architecture section (regardless of its current section).',
+            'The last line MUST be exactly: MOVE_OK'
+        ].join('\n'),
+        checkReply: (text) => /MOVE_OK\s*$/m.test(String(text || '')),
+        verifyWorld: (world) => {
+            if (!world?.sections) return false;
+            const all = [];
+            for (const k of Object.keys(world.sections)) {
+                const arr = world.sections[k];
+                if (Array.isArray(arr)) all.push(...arr);
+            }
+            const probes = all.filter((e) => String(e.title || '').trim() === 'Migration Motion Probe');
+            const arch = Array.isArray(world.sections.Architecture) ? world.sections.Architecture : [];
+            return probes.length === 1 && arch.some((e) => String(e.title || '').trim() === 'Migration Motion Probe');
+        }
+    },
+    {
+        id: '8_append_image',
+        prompt: () => {
+            const url = state.copilotScenarioFixtureUrl || '';
+            return [
+                'Automated QA. Regions should have "Salt Frost Strait". First anvil_get_world_digest to get its entry ID.',
+                'Call anvil_apply_world_operations with one appendEntryImages operation:',
+                `Use the ID above for entryId; images should be just one: url MUST exactly equal "${url}", label should be "QA Pixel Nail".`,
+                'If url is empty, the test environment failed to upload the fixture, just reply with failure explanation; if url is provided, you MUST append it.',
+                'On success, the last line MUST be exactly: IMG_OK'
+            ].join('\n');
+        },
+        checkReply: (text) => /IMG_OK\s*$/m.test(String(text || '')),
+        verifyWorld: (world) => {
+            if (!state.copilotScenarioFixtureUrl) return false;
+            const regions = Array.isArray(world?.sections?.Regions) ? world.sections.Regions : [];
+            const region = regions.find((e) => String(e.title || '').includes('Salt Frost Strait'));
+            if (!region || !Array.isArray(region.images)) return false;
+            return region.images.some(
+                (img) =>
+                    String(img.label || '').includes('QA Pixel Nail') ||
+                    String(img.url || '') === String(state.copilotScenarioFixtureUrl)
+            );
+        }
+    },
+    {
+        id: '9_world_polish',
+        prompt: [
+            'Using updateWorldFields only: change the world name to "QA - Amber Shell (Vol 1 Final)";',
+            'Append a short sentence to the end of summary, which MUST contain "Salt Tax Archive". Do not delete the previous trench settings.',
+            'The last line MUST be exactly: POLISH_OK'
+        ].join('\n'),
+        checkReply: (text) => /POLISH_OK\s*$/m.test(String(text || '')),
+        verifyWorld: (world) => {
+            const n = String(world?.name || '');
+            const s = String(world?.summary || '');
+            return n.includes('Vol 1 Final') && s.includes('Salt Tax Archive');
+        }
+    }
+];
+
+async function sendBrainstormStreamRequest(userMessage, attachmentUrls = []) {
+    const textConfig = getBrainstormGenerationConfig();
+    if (!textConfig.apiUrl || !textConfig.apiKey) {
+        throw new Error('Please configure your text model API in the settings.');
+    }
+
+    const urls = Array.isArray(attachmentUrls) ? attachmentUrls.map((u) => String(u || '').trim()).filter(Boolean) : [];
+
+    const response = await fetch('/gpt/anvil/brainstorm/chat/stream', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            worldId: state.currentWorld.id,
+            apiUrl: textConfig.apiUrl,
+            apiKey: textConfig.apiKey,
+            model: textConfig.model,
+            message: userMessage,
+            attachmentUrls: urls,
+            activeSection: state.activeSection,
+            activeEntryId: state.activeEntryId
+        })
+    });
+
+    if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.error?.message || errJson.error || `HTTP ${response.status}`);
+    }
+
+    const donePayload = await readBrainstormSseStream(response, {
+        onDelta: (text) => {
+            if (state.brainstormPendingTurn) {
+                state.brainstormPendingTurn.streamText = (state.brainstormPendingTurn.streamText || '') + text;
+            }
+            updateCopilotStreamBody(state.brainstormPendingTurn?.streamText || '');
+        },
+        onTool: (json) => {
+            const p = state.brainstormPendingTurn;
+            if (p) {
+                if (json.phase === 'start') {
+                    const st = (p.streamText || '').trim();
+                    if (st) {
+                        p.blocks.push({ type: 'text', content: p.streamText });
+                        p.streamText = '';
+                    }
+                    let last = p.blocks[p.blocks.length - 1];
+                    if (!last || last.type !== 'tools') {
+                        last = { type: 'tools', calls: [] };
+                        p.blocks.push(last);
+                    }
+                    last.calls.push({
+                        name: json.name || 'unknown',
+                        callId: json.callId || '',
+                        arguments: json.arguments ?? '{}',
+                        result: '',
+                        state: 'running'
+                    });
+                } else if (json.phase === 'done') {
+                    const last = p.blocks[p.blocks.length - 1];
+                    if (last && last.type === 'tools') {
+                        const cid = json.callId;
+                        let call = cid
+                            ? last.calls.find((c) => c.callId === cid && c.state === 'running')
+                            : null;
+                        if (!call) {
+                            for (let i = last.calls.length - 1; i >= 0; i -= 1) {
+                                if (last.calls[i].state === 'running') {
+                                    call = last.calls[i];
+                                    break;
+                                }
+                            }
+                        }
+                        if (call) {
+                            call.state = 'done';
+                            const r = json.result != null ? String(json.result) : json.preview != null ? String(json.preview) : '';
+                            call.result = r;
+                        }
+                    }
+                }
+            }
+            if (json.phase === 'start') {
+                console.debug('[Anvil Copilot] tool start', json.name, json.callId);
+            } else if (json.phase === 'done') {
+                console.debug('[Anvil Copilot] tool done', json.name, json.callId);
+            }
+            scheduleCopilotThreadRefresh();
+        },
+        onError: (msg) => {
+            console.warn('[Copilot stream]', msg);
+        }
+    });
+
+    if (!donePayload) {
+        throw new Error('Stream ended without a result.');
+    }
+
+    try {
+        console.groupCollapsed('[Anvil AI → model] brainstorm/chat/stream');
+        console.log('model:', textConfig.model);
+        console.log('assistantMessage:', donePayload.assistantMessage);
+        console.groupEnd();
+    } catch (_e) {
+        /* ignore */
+    }
+
+    if (donePayload.brainstormError) {
+        console.warn('[Anvil Copilot]', donePayload.brainstormError);
+    }
+
+    setBrainstormSession(donePayload.session || createEmptyBrainstormSession(state.currentWorld.id));
+
+    const worldMutated = Boolean(donePayload.worldMutated);
+    if (donePayload.world) {
+        state.currentWorld = ensureWorldShape(donePayload.world);
+        upsertWorldSummary(state.currentWorld);
+        if (worldMutated) {
+            state.activeSection = state.currentWorld.sections[state.activeSection] ? state.activeSection : 'World';
+            ensureActiveEntry();
+        }
+    }
+
+    state.brainstormPendingTurn = null;
+    flushCopilotThreadRefresh();
+
+    return {
+        assistantMessage: donePayload.assistantMessage,
+        session: donePayload.session,
+        brainstormError: donePayload.brainstormError,
+        worldMutated
+    };
+}
+
+async function clearBrainstormChat() {
+    if (!state.currentWorld || state.brainstormSending || state.brainstormTestRunning) return;
+
+    const worldId = state.currentWorld.id;
+    try {
+        const response = await fetch(`/gpt/anvil/brainstorm/session/${encodeURIComponent(worldId)}/clear`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(typeof data.error === 'string' ? data.error : `HTTP ${response.status}`);
+        }
+        setBrainstormSession(data);
+        state.brainstormPendingTurn = null;
+        state.brainstormAttachments = [];
+        state.brainstormDraft = '';
+        if (isBrainstormChatShellMounted()) {
+            const inputEl = dom.brainstormPanel.querySelector('#brainstorm-input');
+            if (inputEl) {
+                inputEl.value = '';
+                inputEl.style.height = '48px';
+            }
+            flushCopilotThreadRefresh();
+            fillCopilotAttachPreviewSlot();
+            syncCopilotDockBusyState();
+            syncBrainstormHeaderMeta();
+        } else {
+            renderBrainstormPanel();
+        }
+        console.info('[Anvil Copilot] Conversation cleared.');
+    } catch (error) {
+        console.error('Failed to clear Copilot chat:', error);
+        alert(`Could not clear chat: ${error.message}`);
+    }
+}
+
+async function runCopilotSelfTest() {
+    if (!state.currentWorld || state.brainstormTestRunning || state.brainstormSending) return;
+
+    state.brainstormExpanded = true;
+    state.brainstormTestRunning = true;
+    if (!isBrainstormChatShellMounted()) {
+        renderBrainstormPanel();
+    }
+
+    console.groupCollapsed('[Anvil Copilot] Scenario Self-Test (Amber Shell Complete World)');
+    console.info(
+        'Using real API. Covers: chat, world fields, World/Regions/Factions/Characters entries, links & tags, entry edits, section moves, appendEntryImages, world name & summary finalize. Check console for step pass/fail.'
+    );
+
+    try {
+        for (const step of COPILOT_SCENARIO_STEPS) {
+            if (!state.brainstormTestRunning) break;
+
+            if (typeof step.runOnly === 'function') {
+                console.groupCollapsed(`Step ${step.id} (Local Only)`);
+                try {
+                    await step.runOnly();
+                } catch (err) {
+                    console.error(`Step ${step.id} error`, err);
+                } finally {
+                    console.groupEnd();
+                }
+                await new Promise((resolve) => setTimeout(resolve, 120));
+                continue;
+            }
+
+            const promptText = typeof step.prompt === 'function' ? step.prompt() : step.prompt;
+
+            state.brainstormPendingTurn = {
+                user: promptText,
+                attachmentUrls: [],
+                blocks: [],
+                streamText: ''
+            };
+            state.brainstormSending = true;
+            if (isBrainstormChatShellMounted()) {
+                syncCopilotDockBusyState();
+                flushCopilotThreadRefresh();
+            } else {
+                renderBrainstormPanel();
+            }
+
+            console.groupCollapsed(`Step ${step.id}`);
+            console.log('Sent prompt:\n', promptText);
+
+            let stepWorldMutated = false;
+            try {
+                const result = await sendBrainstormStreamRequest(promptText, []);
+                stepWorldMutated = Boolean(result.worldMutated);
+                const text = result.assistantMessage || '';
+                let passReply = step.checkReply ? step.checkReply(text) : true;
+                let passWorld = step.verifyWorld ? step.verifyWorld(state.currentWorld) : true;
+                const pass = passReply && passWorld;
+
+                if (step.verifyWorld && !passWorld) {
+                    console.warn('World data assertion failed (model may not have followed instructions, or previous step failed).', {
+                        name: state.currentWorld?.name,
+                        summarySample: String(state.currentWorld?.summary || '').slice(0, 120)
+                    });
+                }
+                if (step.checkReply && !passReply) {
+                    console.warn('Reply assertion failed (tail marker line unexpected).', { tail: text.slice(-80) });
+                }
+
+                console[pass ? 'log' : 'warn'](pass ? 'Pass' : 'Fail', {
+                    replyPreview: text.slice(0, 280),
+                    brainstormError: result.brainstormError || null
+                });
+            } catch (err) {
+                console.error(`Step ${step.id} error`, err);
+            } finally {
+                state.brainstormSending = false;
+                state.brainstormPendingTurn = null;
+                console.groupEnd();
+            }
+
+            if (stepWorldMutated) {
+                patchUiAfterCopilotWorldSync({ serverPersisted: true });
+            } else {
+                syncBrainstormHeaderMeta();
+            }
+            if (isBrainstormChatShellMounted()) {
+                syncCopilotDockBusyState();
+                flushCopilotThreadRefresh();
+            } else {
+                renderBrainstormPanel();
+            }
+            await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+        console.log('Scenario self-test finished.');
+    } finally {
+        console.groupEnd();
+        state.brainstormTestRunning = false;
+        state.brainstormSending = false;
+        state.brainstormPendingTurn = null;
+        syncBrainstormHeaderMeta();
+        if (isBrainstormChatShellMounted()) {
+            syncCopilotDockBusyState();
+            flushCopilotThreadRefresh();
+        } else {
+            renderBrainstormPanel();
+        }
+    }
+}
+
+function syncBrainstormInputHeight(textarea) {
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.max(48, textarea.scrollHeight)}px`;
+}
+
 function renderBrainstormPanel() {
     if (!dom.brainstormPanel) return;
 
     if (!state.currentWorld) {
         dom.brainstormPanel.className = 'brainstorm-panel is-collapsed';
         dom.brainstormPanel.innerHTML = `
-            <div class="brainstorm-panel-shell">
-                <div class="brainstorm-header">
+            <div class="brainstorm-panel-shell brainstorm-panel-shell--unified">
+                <div class="brainstorm-header brainstorm-header--strip brainstorm-header--disabled">
                     <div class="brainstorm-heading">
-                        <div class="brainstorm-orb"></div>
+                        <div class="brainstorm-orb" aria-hidden="true"></div>
                         <div class="brainstorm-heading-copy">
-                            <strong>World Brainstorm</strong>
-                            <span>Pick a world first to start world-aware ideation.</span>
+                            <strong>World Copilot</strong>
+                            <span class="brainstorm-header-tagline">Select a world to use chat</span>
                         </div>
                     </div>
-                    <div class="brainstorm-toggle" aria-hidden="true"></div>
+                    <div class="brainstorm-meta">
+                        <span class="brainstorm-toggle" aria-hidden="true"></span>
+                    </div>
                 </div>
             </div>
         `;
@@ -1342,188 +2190,92 @@ function renderBrainstormPanel() {
 
     const session = getBrainstormSession();
     const messages = Array.isArray(session.messages) ? session.messages : [];
-    const operations = Array.isArray(state.brainstormPendingPatch) ? state.brainstormPendingPatch : [];
-    const pendingCount = operations.filter((operation) => operation.status !== 'applied' && operation.status !== 'rejected').length;
     const activeEntry = getSelectedEntry();
+    const textModelOptionsHtml = getBrainstormTextModelOptionsHtml();
 
     dom.brainstormPanel.className = `brainstorm-panel ${state.brainstormExpanded ? 'is-expanded' : 'is-collapsed'}`;
+
     dom.brainstormPanel.innerHTML = `
-        <div class="brainstorm-panel-shell">
-            <button class="brainstorm-header" type="button" data-brainstorm-toggle="true" aria-expanded="${state.brainstormExpanded ? 'true' : 'false'}">
+        <div class="brainstorm-panel-shell brainstorm-panel-shell--unified brainstorm-panel-shell--chat">
+            <header class="brainstorm-header brainstorm-header--strip brainstorm-header--expanded" data-brainstorm-toggle="true" aria-expanded="${state.brainstormExpanded ? 'true' : 'false'}">
                 <div class="brainstorm-heading">
-                    <div class="brainstorm-orb"></div>
+                    <div class="brainstorm-orb" aria-hidden="true"></div>
                     <div class="brainstorm-heading-copy">
-                        <strong>World Brainstorm</strong>
-                        <span>${escapeHtml(state.currentWorld.name || 'Untitled World')} · AI can read the full world and propose batch changes.</span>
+                        <strong>World Copilot</strong>
+                        <span class="brainstorm-header-tagline">${escapeHtml(state.currentWorld.name || 'Untitled World')} · ${escapeHtml(activeEntry?.title || state.activeSection)}</span>
                     </div>
                 </div>
                 <div class="brainstorm-meta">
-                    <span class="brainstorm-pill">${messages.length} turns</span>
-                    <span class="brainstorm-pill">${pendingCount} pending changes</span>
-                    <span class="brainstorm-pill">${escapeHtml(activeEntry?.title || state.activeSection)}</span>
-                    <span class="brainstorm-toggle" aria-hidden="true"></span>
+                    <span class="brainstorm-pill" data-brainstorm-pill="msgs">${messages.length} msgs</span>
+                    <span class="brainstorm-pill" data-brainstorm-pill="context">${escapeHtml(state.activeSection)}</span>
+                    <button type="button" class="button-ghost copilot-self-test-btn" data-copilot-self-test="true" ${state.brainstormSending || state.brainstormTestRunning ? 'disabled' : ''}>Run Scenario Test</button>
+                    <button type="button" class="copilot-header-collapse" title="Toggle chat">
+                        <span class="brainstorm-toggle" aria-hidden="true"></span>
+                    </button>
                 </div>
-            </button>
-
-            <div class="brainstorm-body">
-                <div class="brainstorm-body-inner">
-                    <div class="brainstorm-column">
-                        <section class="brainstorm-chat-shell">
-                            <div class="brainstorm-chat-header">
-                                <div>
-                                    <div class="eyebrow">Brainstorm Chat</div>
-                                    <div class="muted">Bound to this world. It can ideate from all current canon, entries and anchors.</div>
+            </header>
+            <div class="brainstorm-body brainstorm-body--chat">
+                <div class="brainstorm-body-inner brainstorm-body-inner--chat">
+                    <div class="copilot-thread">${renderCopilotMessageListHtml(messages, state.brainstormPendingTurn)}</div>
+                    <footer class="copilot-dock">
+                        <div id="copilot-attach-preview-slot"></div>
+                        <div class="copilot-dock-row">
+                            <div class="copilot-dock-left">
+                                <div class="copilot-dock-select-wrap">
+                                    <select id="anvil-brainstorm-model" class="sidebar-select" data-select-placement="up" aria-label="Text model">${textModelOptionsHtml}</select>
                                 </div>
+                                <textarea id="brainstorm-input" class="copilot-textarea" rows="1" placeholder="Message… (${escapeAttribute(state.activeSection)} context)">${escapeHtml(state.brainstormDraft || '')}</textarea>
                             </div>
-                            <div class="brainstorm-chat-log">${renderBrainstormMessages(messages)}</div>
-                        </section>
-
-                        <section class="brainstorm-composer">
-                            <div class="brainstorm-toolbar">
-                                <div class="brainstorm-toolbar-group">
-                                    <div>
-                                        <div class="eyebrow">Chat Direction</div>
-                                        <div class="muted">Use this for ideation, restructuring, continuity planning, or batch edits.</div>
-                                    </div>
-                                </div>
-                                <div class="brainstorm-toolbar-group">
-                                    <div class="brainstorm-select-wrap">
-                                        <select id="anvil-brainstorm-model" class="brainstorm-model-select">
-                                            ${BRAINSTORM_MODEL_OPTIONS.map((option) => `
-                                                <option value="${escapeAttribute(option.value)}" ${option.value === state.brainstormModel ? 'selected' : ''}>${escapeHtml(option.label)}</option>
-                                            `).join('')}
-                                        </select>
-                                    </div>
-                                </div>
+                            <div class="copilot-dock-actions">
+                                <input type="file" id="brainstorm-attach-input" class="copilot-attach-input" accept="image/*" multiple hidden>
+                                <button type="button" class="button-ghost copilot-attach-btn" data-brainstorm-attach-pick="true" title="Attach images" ${state.brainstormSending || state.brainstormTestRunning ? 'disabled' : ''}>Image</button>
+                                <button type="button" class="button-ghost copilot-clear-btn" data-copilot-clear-chat="true" title="Clear conversation" ${state.brainstormSending || state.brainstormTestRunning ? 'disabled' : ''}>Clear chat</button>
+                                <button type="button" class="button-primary copilot-send-btn" data-brainstorm-send="true" ${state.brainstormSending ? 'disabled' : ''}>${state.brainstormSending ? '…' : 'Send'}</button>
                             </div>
-
-                            <textarea id="brainstorm-input" placeholder="Tell the AI what you want to explore or change. Example: help me brainstorm three rival city-states, then suggest a batch of new entries and canon updates.">${escapeHtml(state.brainstormDraft || '')}</textarea>
-
-                            <div class="brainstorm-submit-row">
-                                <div class="muted">Current focus: ${escapeHtml(activeEntry?.title || `Section ${state.activeSection}`)}</div>
-                                <button class="button-primary" data-brainstorm-send="true" ${state.brainstormSending ? 'disabled' : ''}>${state.brainstormSending ? 'Thinking...' : 'Send to Brainstorm AI'}</button>
-                            </div>
-                        </section>
-                    </div>
-
-                    <aside class="brainstorm-side">
-                        <section class="brainstorm-patch-panel">
-                            <div class="brainstorm-patch-header">
-                                <div>
-                                    <div class="eyebrow">Planned Changes</div>
-                                    <div class="muted">AI can suggest edits, but they only write into the world after your batch confirmation.</div>
-                                </div>
-                            </div>
-                            <div class="brainstorm-patch-list">${renderBrainstormPatchList(operations)}</div>
-                            <div class="brainstorm-patch-actions">
-                                <div class="muted">${pendingCount > 0 ? `${pendingCount} pending operations are ready to apply.` : 'No pending operations yet.'}</div>
-                                <button class="button-primary" data-brainstorm-apply="true" ${pendingCount === 0 || state.brainstormApplying ? 'disabled' : ''}>${state.brainstormApplying ? 'Applying...' : 'Apply This Batch'}</button>
-                            </div>
-                        </section>
-                    </aside>
+                        </div>
+                    </footer>
                 </div>
             </div>
         </div>
     `;
 
-    enhanceCustomSelect(dom.brainstormPanel.querySelector('#anvil-brainstorm-model'));
+    fillCopilotAttachPreviewSlot();
+
+    const brainstormModelSelect = dom.brainstormPanel.querySelector('#anvil-brainstorm-model');
+    if (brainstormModelSelect) {
+        syncBrainstormModelSelectValue(brainstormModelSelect);
+        enhanceCustomSelect(brainstormModelSelect);
+    }
     bindBrainstormPanelEvents();
     syncBrainstormExpandedUi();
-
-    const log = dom.brainstormPanel.querySelector('.brainstorm-chat-log');
-    if (log) {
-        requestAnimationFrame(() => {
-            log.scrollTop = log.scrollHeight;
-        });
-    }
-}
-
-function renderBrainstormMessages(messages) {
-    if (state.brainstormLoading) {
-        return `
-            <div class="brainstorm-empty">
-                <div class="brainstorm-thinking">
-                    <span>Loading world session</span>
-                    <span class="brainstorm-thinking-dots"><span></span><span></span><span></span></span>
-                </div>
-            </div>
-        `;
-    }
-
-    if (!Array.isArray(messages) || messages.length === 0) {
-        return `
-            <div class="brainstorm-empty">
-                <div class="eyebrow">No brainstorm yet</div>
-                <div>Start with a goal, tension, redesign direction, or vague vibe. The AI will brainstorm from this world's existing material and can return a batch of proposed edits.</div>
-            </div>
-        `;
-    }
-
-    const messageMarkup = messages.map((message) => {
-        const role = message.role || 'assistant';
-        const roleClass = role === 'user'
-            ? 'brainstorm-message-user'
-            : role === 'system'
-                ? 'brainstorm-message-system'
-                : 'brainstorm-message-assistant';
-        const roleLabel = role === 'user' ? 'You' : role === 'system' ? 'System' : 'Anvil AI';
-
-        return `
-            <article class="brainstorm-message ${roleClass}">
-                <div class="brainstorm-message-meta">${escapeHtml(roleLabel)} · ${formatTimestamp(message.createdAt)}</div>
-                <div>${escapeHtml(message.content || '')}</div>
-            </article>
-        `;
-    }).join('');
-
-    const thinkingMarkup = state.brainstormSending
-        ? `
-            <article class="brainstorm-message brainstorm-message-assistant">
-                <div class="brainstorm-message-meta">Anvil AI · Thinking</div>
-                <div class="brainstorm-thinking">
-                    <span>Shaping ideas and possible edits</span>
-                    <span class="brainstorm-thinking-dots"><span></span><span></span><span></span></span>
-                </div>
-            </article>
-        `
-        : '';
-
-    return `${messageMarkup}${thinkingMarkup}`;
-}
-
-function renderBrainstormPatchList(operations) {
-    if (!Array.isArray(operations) || operations.length === 0) {
-        return `
-            <div class="brainstorm-side-empty">
-                <div class="eyebrow">Awaiting proposal</div>
-                <div>The AI can respond with structured operations like world summary updates, new entries, section moves, tag relinks, or entry deletions.</div>
-            </div>
-        `;
-    }
-
-    return operations.map((operation, index) => {
-        const status = operation.status || 'pending';
-        return `
-            <article class="brainstorm-patch-card is-${escapeAttribute(status)}" style="animation-delay: ${Math.min(index * 0.04, 0.28)}s">
-                <div class="brainstorm-patch-topline">
-                    <span class="brainstorm-patch-type">${escapeHtml(operation.type || 'operation')}</span>
-                    <span class="brainstorm-patch-status">${escapeHtml(status)}</span>
-                </div>
-                <div class="brainstorm-patch-desc">${escapeHtml(describeBrainstormOperation(operation))}</div>
-                ${operation.reason ? `<div class="brainstorm-patch-reason">${escapeHtml(operation.reason)}</div>` : ''}
-            </article>
-        `;
-    }).join('');
+    syncCopilotDockBusyState();
+    scrollCopilotThreadToBottom();
+    requestAnimationFrame(() => syncBrainstormInputHeight(dom.brainstormPanel.querySelector('#brainstorm-input')));
 }
 
 function bindBrainstormPanelEvents() {
-    dom.brainstormPanel.querySelector('[data-brainstorm-toggle="true"]')?.addEventListener('click', () => {
+    dom.brainstormPanel.addEventListener('click', (event) => {
+        const toolToggle = event.target.closest('[data-tool-toggle="true"]');
+        if (toolToggle) {
+            const toolCall = toolToggle.closest('.copilot-tool-call');
+            if (toolCall) {
+                toolCall.classList.toggle('is-open');
+                event.stopPropagation();
+            }
+        }
+    });
+
+    dom.brainstormPanel.querySelector('[data-brainstorm-toggle="true"]')?.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.target.closest('.copilot-self-test-btn')) return;
         state.brainstormExpanded = !state.brainstormExpanded;
         syncBrainstormExpandedUi();
     });
 
     dom.brainstormPanel.querySelector('#brainstorm-input')?.addEventListener('input', (event) => {
         state.brainstormDraft = event.target.value;
+        syncBrainstormInputHeight(event.target);
     });
 
     dom.brainstormPanel.querySelector('#brainstorm-input')?.addEventListener('keydown', (event) => {
@@ -1542,8 +2294,22 @@ function bindBrainstormPanelEvents() {
         void sendBrainstormMessage();
     });
 
-    dom.brainstormPanel.querySelector('[data-brainstorm-apply="true"]')?.addEventListener('click', () => {
-        void applyBrainstormPatch();
+    dom.brainstormPanel.querySelector('[data-copilot-self-test="true"]')?.addEventListener('click', () => {
+        void runCopilotSelfTest();
+    });
+
+    dom.brainstormPanel.querySelector('[data-copilot-clear-chat="true"]')?.addEventListener('click', () => {
+        void clearBrainstormChat();
+    });
+
+    dom.brainstormPanel.querySelector('[data-brainstorm-attach-pick="true"]')?.addEventListener('click', () => {
+        dom.brainstormPanel.querySelector('#brainstorm-attach-input')?.click();
+    });
+
+    dom.brainstormPanel.querySelector('#brainstorm-attach-input')?.addEventListener('change', (event) => {
+        const input = event.target;
+        void addBrainstormAttachmentsFromFiles(input.files);
+        input.value = '';
     });
 }
 
@@ -1552,40 +2318,6 @@ function syncBrainstormExpandedUi() {
     dom.brainstormPanel.classList.toggle('is-expanded', state.brainstormExpanded);
     dom.brainstormPanel.classList.toggle('is-collapsed', !state.brainstormExpanded);
     dom.brainstormPanel.querySelector('[data-brainstorm-toggle="true"]')?.setAttribute('aria-expanded', state.brainstormExpanded ? 'true' : 'false');
-}
-
-function describeBrainstormOperation(operation) {
-    if (!operation || !operation.type) return 'Unknown operation';
-
-    if (operation.type === 'updateWorldFields') {
-        return `Update world fields: ${Object.keys(operation.fields || {}).join(', ') || 'world metadata'}`;
-    }
-
-    if (operation.type === 'createEntry') {
-        return `Create entry "${operation.entry?.title || 'Untitled Entry'}" in ${operation.section || 'World'}`;
-    }
-
-    if (operation.type === 'updateEntryFields') {
-        return `Update entry ${operation.entryId || operation.titleHint || 'unknown'}: ${Object.keys(operation.fields || {}).join(', ') || 'content'}`;
-    }
-
-    if (operation.type === 'deleteEntry') {
-        return `Delete entry ${operation.entryId || operation.titleHint || 'unknown'}`;
-    }
-
-    if (operation.type === 'moveEntrySection') {
-        return `Move entry ${operation.entryId || operation.titleHint || 'unknown'} to ${operation.toSection || 'another section'}`;
-    }
-
-    if (operation.type === 'setEntryLinks') {
-        return `Replace links for ${operation.entryId || operation.titleHint || 'unknown'} with ${Array.isArray(operation.links) ? operation.links.length : 0} target(s)`;
-    }
-
-    if (operation.type === 'setEntryTags') {
-        return `Replace tags for ${operation.entryId || operation.titleHint || 'unknown'} with ${(operation.tags || []).join(', ') || 'no tags'}`;
-    }
-
-    return operation.type;
 }
 
 function renderImageTile(image, index = 0) {
@@ -1999,12 +2731,40 @@ async function runWorldOverviewGeneration(mode) {
     }
 }
 
+async function addBrainstormAttachmentsFromFiles(fileList) {
+    if (!state.currentWorld || state.brainstormSending) return;
+    const files = Array.from(fileList || []).filter((f) => f.type.startsWith('image/'));
+    for (const file of files) {
+        const formData = new FormData();
+        formData.append('asset', file);
+        formData.append('worldId', state.currentWorld.id);
+        try {
+            const response = await fetch('/gpt/anvil/asset/upload', { method: 'POST', body: formData });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(data.error || `HTTP ${response.status}`);
+            }
+            state.brainstormAttachments.push({
+                url: data.url,
+                label: data.originalName || file.name
+            });
+        } catch (err) {
+            console.error('[Anvil Copilot] Image upload failed:', err);
+            alert(`Image upload failed: ${err.message}`);
+        }
+    }
+    if (!fillCopilotAttachPreviewSlot()) {
+        renderBrainstormPanel();
+    }
+}
+
 async function sendBrainstormMessage() {
     if (!state.currentWorld || state.brainstormSending) return;
 
     const userMessage = state.brainstormDraft.trim();
-    if (!userMessage) {
-        alert('Give the brainstorm AI a direction first.');
+    const pendingUrls = state.brainstormAttachments.map((a) => a.url).filter(Boolean);
+    if (!userMessage && pendingUrls.length === 0) {
+        alert('Enter a message or attach at least one image.');
         return;
     }
 
@@ -2015,89 +2775,54 @@ async function sendBrainstormMessage() {
     }
 
     state.brainstormSending = true;
+    state.brainstormPendingTurn = {
+        user: userMessage,
+        attachmentUrls: pendingUrls,
+        blocks: [],
+        streamText: ''
+    };
     state.brainstormExpanded = true;
-    renderBrainstormPanel();
+    state.brainstormDraft = '';
+    state.brainstormAttachments = [];
+    if (!isBrainstormChatShellMounted()) {
+        renderBrainstormPanel();
+    } else {
+        const inputEl = dom.brainstormPanel.querySelector('#brainstorm-input');
+        if (inputEl) {
+            inputEl.value = '';
+            inputEl.style.height = '48px';
+        }
+        fillCopilotAttachPreviewSlot();
+        syncCopilotDockBusyState();
+        flushCopilotThreadRefresh();
+    }
 
     try {
-        const response = await fetch('/gpt/anvil/brainstorm/chat', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                worldId: state.currentWorld.id,
-                apiUrl: textConfig.apiUrl,
-                apiKey: textConfig.apiKey,
-                model: textConfig.model,
-                message: userMessage,
-                activeSection: state.activeSection,
-                activeEntryId: state.activeEntryId
-            })
-        });
-
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-            throw new Error(data.error?.message || data.error || `HTTP error! status: ${response.status}`);
-        }
-
-        logAiOutboundFromResponse('brainstorm/chat', data);
-
-        setBrainstormSession(data.session || createEmptyBrainstormSession(state.currentWorld.id));
-        state.brainstormDraft = '';
-        state.brainstormPendingPatch = Array.isArray(data.proposedOperations)
-            ? data.proposedOperations
-            : getBrainstormSession().lastProposedOperations || [];
+        const streamResult = await sendBrainstormStreamRequest(userMessage, pendingUrls);
         state.brainstormExpanded = true;
-        renderBrainstormPanel();
+        if (streamResult.worldMutated) {
+            patchUiAfterCopilotWorldSync({ serverPersisted: true });
+        } else {
+            syncBrainstormHeaderMeta();
+        }
+        if (isBrainstormChatShellMounted()) {
+            syncCopilotDockBusyState();
+        } else {
+            renderBrainstormPanel();
+        }
     } catch (error) {
         console.error('Failed Anvil brainstorm chat:', error);
         alert(`Brainstorm request failed: ${error.message}`);
+        state.brainstormPendingTurn = null;
+        flushCopilotThreadRefresh();
     } finally {
         state.brainstormSending = false;
-        renderBrainstormPanel();
-    }
-}
-
-async function applyBrainstormPatch() {
-    if (!state.currentWorld || state.brainstormApplying) return;
-
-    const operations = (state.brainstormPendingPatch || []).filter((operation) => operation.status !== 'applied' && operation.status !== 'rejected');
-    if (operations.length === 0) return;
-
-    state.brainstormApplying = true;
-    renderBrainstormPanel();
-
-    try {
-        const response = await fetch('/gpt/anvil/brainstorm/apply', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                worldId: state.currentWorld.id,
-                operations
-            })
-        });
-
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-            throw new Error(data.error || `HTTP error! status: ${response.status}`);
+        if (isBrainstormChatShellMounted()) {
+            syncCopilotDockBusyState();
+            flushCopilotThreadRefresh();
+        } else {
+            renderBrainstormPanel();
         }
-
-        state.currentWorld = ensureWorldShape(data.world);
-        upsertWorldSummary(state.currentWorld);
-        state.activeSection = state.currentWorld.sections[state.activeSection] ? state.activeSection : 'World';
-        ensureActiveEntry();
-        setBrainstormSession(data.session || createEmptyBrainstormSession(state.currentWorld.id));
-        state.brainstormPendingPatch = getBrainstormSession().lastProposedOperations || [];
-        state.brainstormExpanded = true;
-        renderAll();
-    } catch (error) {
-        console.error('Failed to apply Anvil brainstorm patch:', error);
-        alert(`Applying brainstorm changes failed: ${error.message}`);
-    } finally {
-        state.brainstormApplying = false;
-        renderBrainstormPanel();
     }
 }
 
