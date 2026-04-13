@@ -25,6 +25,18 @@ function normalizePainterApiUrl(apiUrl) {
     return `${trimmedUrl}/v1/images/generations`;
 }
 
+/**
+ * Gemini *image* model ids (2.5 / 3.x, Nano Banana, etc.) use OpenAI-compat
+ * POST /v1/chat/completions for image output in this app — not /v1/images/generations.
+ * OpenRouter-style ids (google/...) still use the default images API flow.
+ */
+function isGeminiNativeImageModel(model) {
+    const m = String(model || '').trim().toLowerCase();
+    if (!m.includes('gemini')) return false;
+    if (m.startsWith('google/')) return false;
+    return m.includes('image');
+}
+
 function normalizeChatApiUrl(apiUrl) {
     if (!apiUrl) return '';
 
@@ -91,6 +103,17 @@ function resolveAnvilAssetPath(assetUrl) {
     return path.join(__dirname, '..', 'public', match[1], safeFileName);
 }
 
+/** Detect real image type from bytes (extension / multer mime can lie). */
+function sniffImageMimeFromBuffer(buf) {
+    if (!buf || buf.length < 12) return null;
+    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
+    if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+    if (buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+    const head6 = buf.toString('ascii', 0, 6);
+    if (head6 === 'GIF87a' || head6 === 'GIF89a') return 'image/gif';
+    return null;
+}
+
 const ANVIL_SECTION_TEMPLATES = [
     'World',
     'Regions',
@@ -106,6 +129,58 @@ function safeArray(value) {
     return Array.isArray(value) ? value : [];
 }
 
+const ANVIL_APPLY_OPERATION_TYPES = new Set([
+    'updateWorldFields',
+    'addSection',
+    'deleteSection',
+    'renameSection',
+    'createEntry',
+    'updateEntryFields',
+    'deleteEntry',
+    'moveEntrySection',
+    'setEntryLinks',
+    'setEntryTags',
+    'appendEntryImages'
+]);
+
+/**
+ * Models often send a single operation at the JSON root instead of { operations: [...] },
+ * or put JSON in a string. Normalize to an array of operation objects.
+ */
+function normalizeBrainstormApplyOperationsArgs(args) {
+    if (!args || typeof args !== 'object') return [];
+
+    const fromArr = safeArray(args.operations).filter((op) => op && typeof op === 'object');
+    if (fromArr.length) return fromArr;
+
+    if (typeof args.operations === 'string' && args.operations.trim()) {
+        try {
+            const parsed = JSON.parse(args.operations);
+            if (Array.isArray(parsed)) {
+                return parsed.filter((op) => op && typeof op === 'object');
+            }
+            if (parsed && typeof parsed === 'object' && typeof parsed.type === 'string') {
+                return [parsed];
+            }
+        } catch (_e) {
+            /* ignore */
+        }
+    }
+
+    const fromOpsAlias = safeArray(args.ops).filter((op) => op && typeof op === 'object');
+    if (fromOpsAlias.length) return fromOpsAlias;
+
+    if (args.operation && typeof args.operation === 'object' && typeof args.operation.type === 'string') {
+        return [args.operation];
+    }
+
+    if (typeof args.type === 'string' && ANVIL_APPLY_OPERATION_TYPES.has(args.type)) {
+        return [{ ...args }];
+    }
+
+    return [];
+}
+
 function normalizeStringArray(value) {
     if (Array.isArray(value)) {
         return value
@@ -115,12 +190,101 @@ function normalizeStringArray(value) {
 
     if (typeof value === 'string') {
         return value
-            .split(',')
+            .split(/[,;|]|\n+/)
             .map((item) => item.trim())
             .filter(Boolean);
     }
 
     return [];
+}
+
+/** Merge tag/style candidates from nested entry objects and common model aliases (tag, style, style_keywords). */
+function coalesceEntryLabelList(...candidates) {
+    const out = [];
+    const seen = new Set();
+    for (const c of candidates) {
+        for (const item of normalizeStringArray(c)) {
+            if (seen.has(item)) continue;
+            seen.add(item);
+            out.push(item);
+        }
+    }
+    return out;
+}
+
+/** When the model omits tags/styleKeywords on createEntry, fill minimal defaults so the UI and image tools stay useful. */
+function fillCreateEntryMetadataDefaults(entry, sectionName) {
+    if (!entry || typeof entry !== 'object') return;
+    const section = String(sectionName || 'World').trim() || 'World';
+    const title = String(entry.title || '').trim();
+    const firstWord = title
+        .replace(/^[^a-zA-Z0-9\u4e00-\u9fff]+/, '')
+        .split(/[\s/|,:，。]+/)
+        .find((w) => w && w.length > 1);
+    let tags = coalesceEntryLabelList(entry.tags);
+    let styleKeywords = coalesceEntryLabelList(entry.styleKeywords);
+    if (tags.length < 2) {
+        tags = coalesceEntryLabelList(tags, section, firstWord || 'lore', 'copilot');
+    }
+    if (styleKeywords.length < 2) {
+        styleKeywords = coalesceEntryLabelList(
+            styleKeywords,
+            'concept art',
+            'atmospheric lighting',
+            title ? title.slice(0, 48) : section
+        );
+    }
+    entry.tags = tags.slice(0, 24);
+    entry.styleKeywords = styleKeywords.slice(0, 24);
+}
+
+/**
+ * Merge streaming tool_call fragments; some gateways omit index or id on early chunks.
+ * Returns OpenAI-shaped tool_calls or null.
+ */
+function finalizeStreamedToolCalls(toolCallsMerge) {
+    const indices = Object.keys(toolCallsMerge)
+        .map((k) => Number(k))
+        .filter((n) => !Number.isNaN(n))
+        .sort((a, b) => a - b);
+    if (!indices.length) return null;
+    return indices.map((i, ord) => {
+        const tc = toolCallsMerge[i];
+        const id =
+            tc.id && String(tc.id).trim()
+                ? String(tc.id).trim()
+                : `call_${Date.now()}_${ord}_${Math.floor(Math.random() * 1e6)}`;
+        return {
+            id,
+            type: 'function',
+            function: {
+                name: String(tc.function?.name || ''),
+                arguments: String(tc.function?.arguments ?? '')
+            }
+        };
+    });
+}
+
+const ANVIL_SECTION_NAME_MAX = 80;
+
+function sanitizeAnvilSectionName(raw) {
+    const s = String(raw ?? '').trim();
+    if (!s || s.length > ANVIL_SECTION_NAME_MAX) return null;
+    if (/[\r\n\x00]/.test(s)) return null;
+    return s;
+}
+
+/** Template sections first (if present), then any other keys alphabetically */
+function orderedAnvilSectionKeys(sections = {}) {
+    const keySet = new Set(Object.keys(sections || {}));
+    const ordered = [];
+    for (const name of ANVIL_SECTION_TEMPLATES) {
+        if (keySet.has(name)) ordered.push(name);
+    }
+    for (const name of Object.keys(sections || {}).sort((a, b) => a.localeCompare(b))) {
+        if (!ordered.includes(name)) ordered.push(name);
+    }
+    return ordered;
 }
 
 function createAnvilEntry(entry = {}, sectionName = 'World') {
@@ -146,14 +310,19 @@ function createAnvilEntry(entry = {}, sectionName = 'World') {
 
 function createAnvilSections(existingSections = {}) {
     const sections = {};
+    const existing = existingSections || {};
 
-    for (const sectionName of ANVIL_SECTION_TEMPLATES) {
-        sections[sectionName] = safeArray(existingSections[sectionName]).map((entry) => createAnvilEntry(entry, sectionName));
+    // Only keys present in stored data — do not recreate template sections the user removed
+    for (const [sectionName, entries] of Object.entries(existing)) {
+        sections[sectionName] = safeArray(entries).map((entry) => createAnvilEntry(entry, sectionName));
     }
 
-    for (const [sectionName, entries] of Object.entries(existingSections || {})) {
-        if (sections[sectionName]) continue;
-        sections[sectionName] = safeArray(entries).map((entry) => createAnvilEntry(entry, sectionName));
+    if (Object.keys(sections).length === 0) {
+        for (const sectionName of ANVIL_SECTION_TEMPLATES) {
+            sections[sectionName] = [];
+        }
+    } else if (!Object.prototype.hasOwnProperty.call(sections, 'World')) {
+        sections.World = [];
     }
 
     return sections;
@@ -503,7 +672,7 @@ function buildAnvilBrainstormWorldDigest(world) {
     const normalizedWorld = ensureAnvilWorldStructure(world);
     const sectionDigest = {};
 
-    for (const sectionName of ANVIL_SECTION_TEMPLATES) {
+    for (const sectionName of orderedAnvilSectionKeys(normalizedWorld.sections)) {
         sectionDigest[sectionName] = safeArray(normalizedWorld.sections?.[sectionName]).map((entry) => ({
             id: entry.id,
             title: entry.title,
@@ -532,6 +701,58 @@ function buildAnvilBrainstormWorldDigest(world) {
     };
 }
 
+const ANVIL_LIST_SECTION_ENTRIES_CAP = 200;
+
+function buildAnvilListSectionsResponse(world) {
+    const normalized = ensureAnvilWorldStructure(world);
+    const sections = orderedAnvilSectionKeys(normalized.sections).map((name) => ({
+        name,
+        entryCount: safeArray(normalized.sections[name]).length
+    }));
+    return { ok: true, sections };
+}
+
+/**
+ * @param {string} [sectionFilterRaw] - if set, only that section (must exist)
+ */
+function buildAnvilListSectionEntriesResponse(world, sectionFilterRaw) {
+    const normalized = ensureAnvilWorldStructure(world);
+    const filter = sectionFilterRaw != null && String(sectionFilterRaw).trim() ? sanitizeAnvilSectionName(sectionFilterRaw) : null;
+    if (sectionFilterRaw != null && String(sectionFilterRaw).trim() && !filter) {
+        return { ok: false, error: 'invalid_section_name' };
+    }
+    let keys;
+    if (filter) {
+        if (!Object.prototype.hasOwnProperty.call(normalized.sections, filter)) {
+            return { ok: false, error: 'section_not_found', section: filter };
+        }
+        keys = [filter];
+    } else {
+        keys = orderedAnvilSectionKeys(normalized.sections);
+    }
+
+    const sections = keys.map((name) => {
+        const arr = safeArray(normalized.sections[name]);
+        const cap = ANVIL_LIST_SECTION_ENTRIES_CAP;
+        const slice = arr.length > cap ? arr.slice(0, cap) : arr;
+        return {
+            name,
+            entryCount: arr.length,
+            truncated: arr.length > cap,
+            entries: slice.map((entry) => ({
+                id: entry.id,
+                title: entry.title,
+                status: entry.status,
+                summaryPreview: truncateText(entry.summary || '', 240),
+                tags: safeArray(entry.tags).slice(0, 12),
+                styleKeywords: safeArray(entry.styleKeywords).slice(0, 12)
+            }))
+        };
+    });
+
+    return { ok: true, sections };
+}
+
 function buildAnvilBrainstormToolSystemPrompt(world, activeSection = 'World', activeEntryId = '') {
     const normalizedWorld = ensureAnvilWorldStructure(world);
     const focusedEntry = activeEntryId
@@ -541,12 +762,17 @@ function buildAnvilBrainstormToolSystemPrompt(world, activeSection = 'World', ac
     return [
         'You are Anvil Copilot: a conversational worldbuilding partner bound to one world.',
         'Reply in natural plain text (no Markdown: no # headings, **bold**, -/* bullet lists, code fences, or links). No filler preambles or sign-offs unless the user wants tone.',
-        'You have tools to read the live world and to apply edits. Before changing data you are unsure about, call anvil_get_world_digest. Use anvil_get_entry when you need longer text for one entry id.',
-        'Use anvil_apply_world_operations to persist changes (world fields, create/update/delete/move entries, links, tags, appendEntryImages). Writes apply immediately on the server.',
+        'You have tools to read the live world and to apply edits. anvil_list_sections returns all section names and entry counts. anvil_list_section_entries lists entries (id, title, status, summary preview) for one section or for every section if you omit section_name. anvil_get_world_digest is a heavier full snapshot; anvil_get_entry loads one entry with longer body text.',
+        'Multi-step tools are REQUIRED when the user wants the world changed: you may call read tools first, then you MUST call anvil_apply_world_operations in a later model step with the actual mutations. One read-only tool call followed by plain text is NOT enough if they asked you to create or edit canon. You may issue multiple tool rounds in a row (read → apply → read again to verify) until the task is done.',
+        'If anvil_apply_world_operations returns ok:false (for example no_operations) or applied:0 while the user asked you to change the world, you MUST call anvil_apply_world_operations again with a valid non-empty operations array before you finish. Never claim scripted success (for example a user-requested last line like *_OK) unless the required writes actually succeeded (ok:true and applied greater than 0 for those writes).',
+        'Use anvil_apply_world_operations to persist changes (world fields, add/delete/rename sections, create/update/delete/move entries, links, tags, appendEntryImages). Writes apply immediately on the server.',
+        'addSection / deleteSection / renameSection: custom section names max 80 chars. deleteSection: non-empty sections need relocateEntriesTo. You cannot delete or rename the World section. renameSection: { fromSection, toSection }; target name must not already exist. moveEntrySection creates the target section if missing.',
         'For updateWorldFields, put name, summary, canonContext, themeKeywords, coverImage either inside a fields object or at the top level of that operation next to type (both are accepted).',
+        'Entries support tags (short labels for browsing/filtering) and styleKeywords (phrases that steer image generation). Every createEntry MUST include entry.tags and entry.styleKeywords as arrays of strings, each with at least 2 items (derive them from the entry role, section, and tone). On updateEntryFields when adding lore, set tags and styleKeywords the same way. Use entry.tag or entry.style as aliases if needed.',
         'appendEntryImages: { type, entryId, images: [{ url, label }] } — append reference images to an entry; url must be an existing Anvil asset path such as ./anvil_assets/worldId_....',
         'The user may attach images in chat (vision). Describe what you see when it matters to the world; use tools when they ask you to store those images on an entry.',
         'You may answer from general knowledge when the user only wants chat; use tools whenever the question depends on this world or when they ask you to change it.',
+        'When you want the user to pick among concrete creative directions (like a Cursor plan), call anvil_propose_directions with 2–6 options (id, title, optional detail). Do not replace this with Markdown numbered lists for exclusive choices. After calling it, briefly acknowledge in plain text that they can choose in the panel or type freely.',
         `UI focus — section: ${activeSection}. Focused entry: ${focusedEntry ? `${focusedEntry.title} (${focusedEntry.id})` : 'none'}.`
     ].join(' ');
 }
@@ -559,7 +785,7 @@ function getAnvilBrainstormTools() {
             function: {
                 name: 'anvil_get_world_digest',
                 description:
-                    'Returns a compact JSON snapshot of the entire world (sections, entries with truncated bodies, canon, theme). Call this to read current lore before answering or editing.',
+                    'Returns a compact JSON snapshot of the entire world (sections, entries with truncated bodies, canon, theme). Use before edits. If the user asked you to change data, follow up in the SAME multi-step turn with anvil_apply_world_operations (do not stop after only this read). The response includes _copilot_followup as a reminder.',
                 parameters: {
                     type: 'object',
                     properties: {}
@@ -584,14 +810,76 @@ function getAnvilBrainstormTools() {
         {
             type: 'function',
             function: {
+                name: 'anvil_list_sections',
+                description:
+                    'Returns every section name in this world with how many entries each has. Lightweight; use before rename/delete or when the user only asks for section names.',
+                parameters: {
+                    type: 'object',
+                    properties: {}
+                }
+            }
+        },
+        {
+            type: 'function',
+            function: {
+                name: 'anvil_list_section_entries',
+                description:
+                    'Returns a structured list of entries per section: id, title, status, summary preview, tags, and styleKeywords. Omit section_name to list all sections. If section_name is set, only that section is returned (error if missing). At most 200 entries per section are returned; truncated is true if more exist.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        section_name: {
+                            type: 'string',
+                            description: 'Optional. Exact section name to filter; leave empty for all sections.'
+                        }
+                    }
+                }
+            }
+        },
+        {
+            type: 'function',
+            function: {
+                name: 'anvil_propose_directions',
+                description:
+                    'Show a choice panel in the chat (like an IDE plan). Use when several worldbuilding directions are viable and the user should pick one. Each option needs a stable id and a short title; optional detail explains the direction. Does not modify the world. After calling, keep your visible reply short; the user selects in the UI or may ignore the panel by sending a normal message.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        prompt: {
+                            type: 'string',
+                            description: 'One-line question or framing shown above the options (e.g. Which tone should we develop?).'
+                        },
+                        options: {
+                            type: 'array',
+                            minItems: 2,
+                            maxItems: 6,
+                            items: {
+                                type: 'object',
+                                properties: {
+                                    id: { type: 'string', description: 'Stable id, e.g. a, b, noir' },
+                                    title: { type: 'string', description: 'Short label for the button' },
+                                    detail: { type: 'string', description: 'Optional longer hint' }
+                                },
+                                required: ['title']
+                            }
+                        }
+                    },
+                    required: ['options']
+                }
+            }
+        },
+        {
+            type: 'function',
+            function: {
                 name: 'anvil_apply_world_operations',
-                description: `Apply structured mutations immediately. Operation objects use field "type" as one of: updateWorldFields, createEntry, updateEntryFields, deleteEntry, moveEntrySection, setEntryLinks, setEntryTags, appendEntryImages. Sections must be one of: ${sectionsList}. For updateWorldFields use fields: { name, summary, canonContext, themeKeywords, coverImage } OR put those keys at the operation root alongside type. For createEntry use section plus entry: { title, summary, content, status, ... } OR put title/summary/content/status at the operation root. For updateEntryFields use entryId and fields. For moveEntrySection use entryId and toSection. For appendEntryImages use entryId and images: [{ url, label }]. The tool result ok is false when nothing was applied (check applied/rejected counts).`,
+                description: `Apply structured mutations immediately. You MUST pass a JSON object whose top-level key is "operations" (array), e.g. {"operations":[{"type":"updateWorldFields","fields":{"name":"..."}}]}. Sending {} or omitting operations is invalid. A single operation may also be sent at the root (same keys as one array element); the server will wrap it. Operation "type" may be: updateWorldFields, addSection, deleteSection, renameSection, createEntry, updateEntryFields, deleteEntry, moveEntrySection, setEntryLinks, setEntryTags, appendEntryImages. Section names may be any of the common set: ${sectionsList}, or custom short labels (max ${ANVIL_SECTION_NAME_MAX} chars). addSection: { type, sectionName }. deleteSection: { type, sectionName, relocateEntriesTo } — relocateEntriesTo is required when the section is non-empty (moves all entries). renameSection: { type, fromSection, toSection } (also accepts from/to or oldName/newName). Cannot delete or rename section "World". For updateWorldFields use fields: { name, summary, canonContext, themeKeywords, coverImage } OR those keys at the operation root. For createEntry use section and entry: { title, summary, content, status, tags, styleKeywords, links }. tags = 2–8 short labels (e.g. region, faction, role). styleKeywords = 2–10 visual/lore cues for concept art (mood, palette, era, materials). Same fields accepted at operation root; aliases: tag→tags, style or style_keywords→styleKeywords. For updateEntryFields use entryId and fields: { title, summary, content, status, canonContext, tags, links, styleKeywords } OR those keys at the operation root next to type. For moveEntrySection use entryId and toSection (target section is created if missing). For appendEntryImages use entryId and images: [{ url, label }]. The tool result ok is false when nothing was applied (check applied/rejected counts).`,
                 parameters: {
                     type: 'object',
                     properties: {
                         operations: {
                             type: 'array',
-                            description: 'List of operation objects; each must include type and the ids/fields required for that type.',
+                            description:
+                                'Required non-empty list of operation objects unless you send one operation at the root with a type field. Each element must include type and the ids/fields required for that type.',
                             items: { type: 'object' }
                         }
                     },
@@ -641,21 +929,37 @@ async function readLocalAnvilAssetAsDataUrl(assetRef) {
 
     try {
         const buf = await fsPromises.readFile(assetPath);
-        const ext = path.extname(assetPath).toLowerCase();
-        let mime = 'image/png';
-        if (ext === '.jpg' || ext === '.jpeg') mime = 'image/jpeg';
-        else if (ext === '.webp') mime = 'image/webp';
-        else if (ext === '.gif') mime = 'image/gif';
-        return `data:${mime};base64,${buf.toString('base64')}`;
+        if (!buf || buf.length < 24) {
+            console.error('[Anvil] Asset file too small or empty:', assetPath, 'bytes', buf?.length ?? 0);
+            return null;
+        }
+        const mime = sniffImageMimeFromBuffer(buf);
+        if (!mime) {
+            console.error(
+                '[Anvil] Asset is not a valid image (unrecognized magic bytes):',
+                assetPath,
+                'hex8',
+                buf.subarray(0, 8).toString('hex')
+            );
+            return null;
+        }
+        const b64 = buf.toString('base64');
+        return `data:${mime};base64,${b64}`;
     } catch (_err) {
         return null;
     }
 }
 
-async function prepareBrainstormMessagesForProvider(messages) {
+async function prepareBrainstormMessagesForProvider(messages, options = {}) {
     if (!Array.isArray(messages)) {
         return [];
     }
+
+    // If your chat API host cannot use data:image/... URLs, set ANVIL_BRAINSTORM_IMAGE_BASE_URL
+    // to a public origin that serves /anvil_assets/* (e.g. https://your-tunnel.example.com).
+    const imagePublicBase = String(
+        options.imagePublicBase || process.env.ANVIL_BRAINSTORM_IMAGE_BASE_URL || ''
+    ).trim();
 
     const out = [];
 
@@ -670,12 +974,29 @@ async function prepareBrainstormMessagesForProvider(messages) {
                     nextParts.push({ type: 'text', text: String(part.text ?? '') });
                 } else if (part.type === 'image_url' && part.image_url && part.image_url.url) {
                     const u = String(part.image_url.url);
+                    const detail = part.image_url.detail || 'low';
                     if (u.startsWith('data:') || /^https?:\/\//i.test(u)) {
-                        nextParts.push({ type: 'image_url', image_url: { url: u } });
+                        nextParts.push({ type: 'image_url', image_url: { url: u, detail } });
+                    } else if (imagePublicBase) {
+                        const assetPath = resolveAnvilAssetPath(u);
+                        if (assetPath) {
+                            const name = path.basename(assetPath);
+                            const webUrl = `${imagePublicBase.replace(/\/$/, '')}/anvil_assets/${encodeURIComponent(name)}`;
+                            nextParts.push({ type: 'image_url', image_url: { url: webUrl, detail } });
+                        } else {
+                            const dataUrl = await readLocalAnvilAssetAsDataUrl(u);
+                            if (dataUrl) {
+                                nextParts.push({ type: 'image_url', image_url: { url: dataUrl, detail } });
+                            } else {
+                                console.error('[Anvil brainstorm] Could not resolve attachment for public URL mode:', u.slice(0, 160));
+                            }
+                        }
                     } else {
                         const dataUrl = await readLocalAnvilAssetAsDataUrl(u);
                         if (dataUrl) {
-                            nextParts.push({ type: 'image_url', image_url: { url: dataUrl } });
+                            nextParts.push({ type: 'image_url', image_url: { url: dataUrl, detail } });
+                        } else {
+                            console.error('[Anvil brainstorm] Could not embed local attachment:', u.slice(0, 160));
                         }
                     }
                 }
@@ -715,6 +1036,33 @@ function buildBrainstormUserOpenAiMessage(userText, attachmentUrls = []) {
     return { role: 'user', content: parts };
 }
 
+const ANVIL_PROPOSE_DIRECTIONS_MIN = 2;
+const ANVIL_PROPOSE_DIRECTIONS_MAX = 6;
+
+function parseAnvilProposeDirectionsArgs(args) {
+    const prompt = String(args.prompt ?? args.question ?? args.title ?? '').trim();
+    const rawOpts = safeArray(args.options);
+    const options = [];
+    for (let i = 0; i < rawOpts.length; i += 1) {
+        const o = rawOpts[i];
+        if (!o || typeof o !== 'object') continue;
+        const idRaw = String(o.id ?? o.key ?? '').trim();
+        const id = idRaw || `opt_${i + 1}`;
+        const title = String(o.title ?? o.label ?? o.name ?? '').trim();
+        const detail = String(o.detail ?? o.summary ?? o.description ?? '').trim();
+        if (!title) continue;
+        options.push({ id, title, detail });
+    }
+    if (options.length < ANVIL_PROPOSE_DIRECTIONS_MIN) {
+        return { ok: false, error: `Provide at least ${ANVIL_PROPOSE_DIRECTIONS_MIN} options with non-empty titles.` };
+    }
+    if (options.length > ANVIL_PROPOSE_DIRECTIONS_MAX) {
+        options.length = ANVIL_PROPOSE_DIRECTIONS_MAX;
+    }
+    const proposalId = `plan_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+    return { ok: true, proposalId, prompt, options };
+}
+
 async function executeAnvilBrainstormToolAsync(worldHolder, worldId, toolName, argsJson) {
     let args = {};
     try {
@@ -730,7 +1078,10 @@ async function executeAnvilBrainstormToolAsync(worldHolder, worldId, toolName, a
     const world = worldHolder.world;
 
     if (toolName === 'anvil_get_world_digest') {
-        return JSON.stringify(buildAnvilBrainstormWorldDigest(world));
+        const snap = buildAnvilBrainstormWorldDigest(world);
+        snap._copilot_followup =
+            'If the user wanted mutations, call anvil_apply_world_operations next. For each createEntry include entry.tags and entry.styleKeywords (arrays, each >= 2 strings).';
+        return JSON.stringify(snap);
     }
 
     if (toolName === 'anvil_get_entry') {
@@ -762,10 +1113,41 @@ async function executeAnvilBrainstormToolAsync(worldHolder, worldId, toolName, a
         });
     }
 
+    if (toolName === 'anvil_list_sections') {
+        return JSON.stringify(buildAnvilListSectionsResponse(world));
+    }
+
+    if (toolName === 'anvil_list_section_entries') {
+        const sectionName = args.section_name ?? args.sectionName ?? args.section ?? '';
+        return JSON.stringify(buildAnvilListSectionEntriesResponse(world, sectionName));
+    }
+
+    if (toolName === 'anvil_propose_directions') {
+        const parsed = parseAnvilProposeDirectionsArgs(args);
+        if (!parsed.ok) {
+            return JSON.stringify({ ok: false, error: parsed.error });
+        }
+        return JSON.stringify({
+            ok: true,
+            proposalId: parsed.proposalId,
+            prompt: parsed.prompt,
+            options: parsed.options,
+            note: 'Shown in the chat UI. The user may pick an option, use Custom, or send a normal message to skip this plan.'
+        });
+    }
+
     if (toolName === 'anvil_apply_world_operations') {
-        const operations = safeArray(args.operations);
+        const operations = normalizeBrainstormApplyOperationsArgs(args);
         if (!operations.length) {
-            return JSON.stringify({ ok: false, error: 'no_operations' });
+            return JSON.stringify({
+                ok: false,
+                error: 'no_operations',
+                message:
+                    'Missing or empty operations. Pass arguments like {"operations":[{"type":"updateWorldFields","fields":{"name":"QA - Amber Shell","summary":"...","canonContext":"...","themeKeywords":["A","B","C"]}}]} — do not call this tool with {}.',
+                must_retry: true,
+                _copilot_followup:
+                    'Call anvil_apply_world_operations again immediately with a non-empty operations array containing the mutations the user asked for.'
+            });
         }
 
         const { world: nextWorld, appliedOperations } = applyAnvilOperations(world, operations);
@@ -837,7 +1219,8 @@ async function runAnvilBrainstormWithTools({
             max_tokens: 4096,
             messages: messagesForApi,
             tools: getAnvilBrainstormTools(),
-            tool_choice: 'auto'
+            tool_choice: 'auto',
+            parallel_tool_calls: true
         };
 
         const response = await fetch(normalizeChatApiUrl(apiUrl), {
@@ -902,6 +1285,7 @@ async function runAnvilBrainstormWithTools({
                 displayBlocks.push({ type: 'text', content: preface });
             }
             const calls = [];
+            const planBlocksToAppend = [];
             for (const tc of assistantMsg.tool_calls) {
                 const toolName = tc.function?.name;
                 const rawArgs = tc.function?.arguments ?? '{}';
@@ -918,8 +1302,27 @@ async function runAnvilBrainstormWithTools({
                     tool_call_id: tc.id,
                     content: toolResult
                 });
+                if (toolName === 'anvil_propose_directions') {
+                    try {
+                        const tr = JSON.parse(toolResult);
+                        if (tr.ok && tr.proposalId && Array.isArray(tr.options) && tr.options.length > 0) {
+                            planBlocksToAppend.push({
+                                type: 'plan_options',
+                                proposalId: tr.proposalId,
+                                prompt: String(tr.prompt || ''),
+                                options: tr.options,
+                                state: 'pending'
+                            });
+                        }
+                    } catch (_e) {
+                        /* ignore */
+                    }
+                }
             }
             displayBlocks.push({ type: 'tools', calls });
+            for (const pb of planBlocksToAppend) {
+                displayBlocks.push(pb);
+            }
             continue;
         }
 
@@ -961,7 +1364,7 @@ function sendBrainstormSse(res, payload) {
     }
 }
 
-async function consumeOpenAiChatSseStream(response, { onContentDelta } = {}) {
+async function consumeOpenAiChatSseStream(response, { onContentDelta, isAborted } = {}) {
     const reader = response.body?.getReader?.();
     if (!reader) {
         const fallbackText = await response.text();
@@ -980,6 +1383,15 @@ async function consumeOpenAiChatSseStream(response, { onContentDelta } = {}) {
     let finish_reason = null;
 
     while (true) {
+        if (typeof isAborted === 'function' && isAborted()) {
+            await reader.cancel().catch(() => {});
+            return {
+                error: 'aborted',
+                content,
+                tool_calls: null,
+                finish_reason: 'abort'
+            };
+        }
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
@@ -1024,7 +1436,37 @@ async function consumeOpenAiChatSseStream(response, { onContentDelta } = {}) {
 
                 if (delta.tool_calls && Array.isArray(delta.tool_calls)) {
                     for (const tc of delta.tool_calls) {
-                        const idx = typeof tc.index === 'number' ? tc.index : 0;
+                        let idx =
+                            typeof tc.index === 'number' && !Number.isNaN(tc.index)
+                                ? tc.index
+                                : tc.index != null && String(tc.index).trim() !== ''
+                                  ? Number(tc.index)
+                                  : null;
+                        if (idx === null || Number.isNaN(idx)) {
+                            if (tc.id) {
+                                const hit = Object.keys(toolCallsMerge).find((k) => toolCallsMerge[k].id === tc.id);
+                                idx = hit != null ? Number(hit) : null;
+                            }
+                        }
+                        if (idx === null || Number.isNaN(idx)) {
+                            const incomingName = tc.function?.name || '';
+                            const z = toolCallsMerge[0];
+                            if (
+                                incomingName &&
+                                z &&
+                                z.function &&
+                                z.function.name &&
+                                z.function.name !== incomingName &&
+                                !tc.id
+                            ) {
+                                const keys = Object.keys(toolCallsMerge)
+                                    .map((k) => Number(k))
+                                    .filter((n) => !Number.isNaN(n));
+                                idx = (keys.length ? Math.max(...keys) : -1) + 1;
+                            } else {
+                                idx = 0;
+                            }
+                        }
                         if (!toolCallsMerge[idx]) {
                             toolCallsMerge[idx] = {
                                 id: '',
@@ -1050,11 +1492,7 @@ async function consumeOpenAiChatSseStream(response, { onContentDelta } = {}) {
         }
     }
 
-    const indices = Object.keys(toolCallsMerge)
-        .map((key) => Number(key))
-        .filter((n) => !Number.isNaN(n))
-        .sort((a, b) => a - b);
-    const tool_calls = indices.length > 0 ? indices.map((i) => toolCallsMerge[i]) : null;
+    const tool_calls = finalizeStreamedToolCalls(toolCallsMerge);
 
     return { error: null, content, tool_calls, finish_reason };
 }
@@ -1068,7 +1506,8 @@ async function runAnvilBrainstormWithToolsStreaming({
     userOpenAiMessage,
     openAiMessages = [],
     activeSection = 'World',
-    activeEntryId = ''
+    activeEntryId = '',
+    isAborted
 }) {
     const worldHolder = {
         world: await loadAnvilWorld(worldId),
@@ -1093,6 +1532,17 @@ async function runAnvilBrainstormWithToolsStreaming({
     const displayBlocks = [];
 
     for (let step = 0; step < MAX_STEPS; step += 1) {
+        if (typeof isAborted === 'function' && isAborted()) {
+            return {
+                error: 'aborted',
+                openAiMessages: nextOpenAi,
+                finalAssistantText: '',
+                world: worldHolder.world,
+                mutated: worldHolder.mutated,
+                displayBlocks
+            };
+        }
+
         const messagesForApi = (
             await prepareBrainstormMessagesForProvider([{ role: 'system', content: systemContent }, ...nextOpenAi])
         ).map(stripChatMessageForApi);
@@ -1102,7 +1552,8 @@ async function runAnvilBrainstormWithToolsStreaming({
             max_tokens: 4096,
             messages: messagesForApi,
             tools: getAnvilBrainstormTools(),
-            tool_choice: 'auto'
+            tool_choice: 'auto',
+            parallel_tool_calls: true
         };
 
         const response = await fetch(normalizeChatApiUrl(apiUrl), {
@@ -1139,8 +1590,20 @@ async function runAnvilBrainstormWithToolsStreaming({
         const streamResult = await consumeOpenAiChatSseStream(response, {
             onContentDelta: (chunk) => {
                 sendBrainstormSse(res, { type: 'delta', text: chunk });
-            }
+            },
+            isAborted
         });
+
+        if (streamResult.error === 'aborted') {
+            return {
+                error: 'aborted',
+                openAiMessages: nextOpenAi,
+                finalAssistantText: '',
+                world: worldHolder.world,
+                mutated: worldHolder.mutated,
+                displayBlocks
+            };
+        }
 
         if (streamResult.error) {
             sendBrainstormSse(res, { type: 'error', message: streamResult.error });
@@ -1175,7 +1638,18 @@ async function runAnvilBrainstormWithToolsStreaming({
                 displayBlocks.push({ type: 'text', content: preface });
             }
             const calls = [];
+            const planBlocksToAppend = [];
             for (const tc of streamResult.tool_calls) {
+                if (typeof isAborted === 'function' && isAborted()) {
+                    return {
+                        error: 'aborted',
+                        openAiMessages: nextOpenAi,
+                        finalAssistantText: '',
+                        world: worldHolder.world,
+                        mutated: worldHolder.mutated,
+                        displayBlocks
+                    };
+                }
                 const toolName = tc.function?.name || 'unknown';
                 const rawArgs = tc.function?.arguments ?? '{}';
                 sendBrainstormSse(res, {
@@ -1210,8 +1684,34 @@ async function runAnvilBrainstormWithToolsStreaming({
                     tool_call_id: tc.id,
                     content: toolResult
                 });
+                if (toolName === 'anvil_propose_directions') {
+                    try {
+                        const tr = JSON.parse(toolResult);
+                        if (tr.ok && tr.proposalId && Array.isArray(tr.options) && tr.options.length > 0) {
+                            const planBlock = {
+                                type: 'plan_options',
+                                proposalId: tr.proposalId,
+                                prompt: String(tr.prompt || ''),
+                                options: tr.options,
+                                state: 'pending'
+                            };
+                            planBlocksToAppend.push(planBlock);
+                            sendBrainstormSse(res, {
+                                type: 'plan_options',
+                                proposalId: tr.proposalId,
+                                prompt: planBlock.prompt,
+                                options: tr.options
+                            });
+                        }
+                    } catch (_e) {
+                        /* ignore */
+                    }
+                }
             }
             displayBlocks.push({ type: 'tools', calls });
+            for (const pb of planBlocksToAppend) {
+                displayBlocks.push(pb);
+            }
 
             sendBrainstormSse(res, { type: 'step', step });
             continue;
@@ -1284,43 +1784,113 @@ function normalizeBrainstormOperation(operation = {}) {
         return { ...base, fields };
     }
 
+    if (base.type === 'addSection') {
+        const sectionName = sanitizeAnvilSectionName(operation.sectionName ?? operation.name ?? operation.section);
+        if (!sectionName) return null;
+        return { ...base, sectionName };
+    }
+
+    if (base.type === 'deleteSection') {
+        const sectionName = sanitizeAnvilSectionName(operation.sectionName ?? operation.name ?? operation.section);
+        if (!sectionName) return null;
+        const relocateRaw = operation.relocateEntriesTo ?? operation.moveEntriesTo ?? operation.targetSection;
+        const relocateEntriesTo =
+            relocateRaw != null && String(relocateRaw).trim() ? sanitizeAnvilSectionName(relocateRaw) : null;
+        return { ...base, sectionName, relocateEntriesTo };
+    }
+
+    if (base.type === 'renameSection') {
+        const fromSection = sanitizeAnvilSectionName(
+            operation.fromSection ?? operation.from ?? operation.oldName ?? operation.old_section
+        );
+        const toSection = sanitizeAnvilSectionName(
+            operation.toSection ?? operation.to ?? operation.newName ?? operation.new_section
+        );
+        if (!fromSection || !toSection || fromSection === toSection) return null;
+        return { ...base, fromSection, toSection };
+    }
+
     if (base.type === 'createEntry') {
-        const section = ANVIL_SECTION_TEMPLATES.includes(operation.section) ? operation.section : 'World';
+        const section = sanitizeAnvilSectionName(operation.section) || 'World';
         const entrySrc = operation.entry && typeof operation.entry === 'object' ? operation.entry : {};
+        const tags = coalesceEntryLabelList(
+            entrySrc.tags,
+            operation.tags,
+            entrySrc.tag,
+            operation.tag
+        );
+        const styleKeywords = coalesceEntryLabelList(
+            entrySrc.styleKeywords,
+            operation.styleKeywords,
+            entrySrc.style_keywords,
+            operation.style_keywords,
+            entrySrc.style,
+            operation.style
+        );
         const entry = createAnvilEntry(
             {
                 title: entrySrc.title || operation.title || `New ${section} Entry`,
                 summary: entrySrc.summary != null ? entrySrc.summary : operation.summary || '',
                 content: entrySrc.content != null ? entrySrc.content : operation.content || '',
                 status: entrySrc.status || operation.status || 'Seed',
-                tags: normalizeStringArray(entrySrc.tags != null ? entrySrc.tags : operation.tags),
+                tags,
                 links: normalizeStringArray(entrySrc.links != null ? entrySrc.links : operation.links),
-                styleKeywords: normalizeStringArray(
-                    entrySrc.styleKeywords != null ? entrySrc.styleKeywords : operation.styleKeywords
-                )
+                styleKeywords
             },
             section
         );
+
+        fillCreateEntryMetadataDefaults(entry, section);
 
         return { ...base, section, entry };
     }
 
     if (base.type === 'updateEntryFields') {
-        const rawFields = operation.fields && typeof operation.fields === 'object' ? operation.fields : {};
+        const rawFields =
+            operation.fields && typeof operation.fields === 'object' ? { ...operation.fields } : {};
+        const promoteScalar = ['title', 'summary', 'content', 'status', 'canonContext'];
+        for (const key of promoteScalar) {
+            if (!(key in rawFields) && key in operation) {
+                rawFields[key] = operation[key];
+            }
+        }
+        if (!('tags' in rawFields) && 'tags' in operation) rawFields.tags = operation.tags;
+        if (!('tags' in rawFields) && 'tag' in operation) rawFields.tags = operation.tag;
+        if (!('links' in rawFields) && 'links' in operation) rawFields.links = operation.links;
+        if (!('styleKeywords' in rawFields) && 'styleKeywords' in operation) {
+            rawFields.styleKeywords = operation.styleKeywords;
+        }
+        if (!('styleKeywords' in rawFields) && 'style_keywords' in operation) {
+            rawFields.styleKeywords = operation.style_keywords;
+        }
+        if (!('styleKeywords' in rawFields) && 'style' in operation) {
+            rawFields.styleKeywords = operation.style;
+        }
+        if ('tag' in rawFields && !('tags' in rawFields)) rawFields.tags = rawFields.tag;
+        if ('style_keywords' in rawFields && !('styleKeywords' in rawFields)) {
+            rawFields.styleKeywords = rawFields.style_keywords;
+        }
+        if ('style' in rawFields && !('styleKeywords' in rawFields)) {
+            rawFields.styleKeywords = rawFields.style;
+        }
+
         const fields = {};
-        const allowedFields = ['title', 'summary', 'content', 'status', 'section', 'canonContext'];
+        /* section moves must use moveEntrySection — assigning section here would desync arrays */
+        const allowedFields = ['title', 'summary', 'content', 'status', 'canonContext'];
 
         for (const key of allowedFields) {
             if (!(key in rawFields)) continue;
             fields[key] = String(rawFields[key] || '');
         }
-        if ('tags' in rawFields) fields.tags = normalizeStringArray(rawFields.tags);
+        if ('tags' in rawFields) fields.tags = coalesceEntryLabelList(rawFields.tags);
         if ('links' in rawFields) fields.links = normalizeStringArray(rawFields.links);
-        if ('styleKeywords' in rawFields) fields.styleKeywords = normalizeStringArray(rawFields.styleKeywords);
+        if ('styleKeywords' in rawFields) {
+            fields.styleKeywords = coalesceEntryLabelList(rawFields.styleKeywords);
+        }
 
         return {
             ...base,
-            entryId: String(operation.entryId || '').trim(),
+            entryId: String(operation.entryId || operation.entry_id || '').trim(),
             titleHint: String(operation.titleHint || '').trim(),
             fields
         };
@@ -1335,11 +1905,17 @@ function normalizeBrainstormOperation(operation = {}) {
     }
 
     if (base.type === 'moveEntrySection') {
+        const toSection = sanitizeAnvilSectionName(
+            operation.toSection ?? operation.to_section ?? operation.targetSection
+        );
+        if (!toSection) return null;
+        const entryId = String(operation.entryId || operation.entry_id || '').trim();
+        if (!entryId) return null;
         return {
             ...base,
-            entryId: String(operation.entryId || '').trim(),
+            entryId,
             titleHint: String(operation.titleHint || '').trim(),
-            toSection: ANVIL_SECTION_TEMPLATES.includes(operation.toSection) ? operation.toSection : 'World'
+            toSection
         };
     }
 
@@ -1355,9 +1931,9 @@ function normalizeBrainstormOperation(operation = {}) {
     if (base.type === 'setEntryTags') {
         return {
             ...base,
-            entryId: String(operation.entryId || '').trim(),
+            entryId: String(operation.entryId || operation.entry_id || '').trim(),
             titleHint: String(operation.titleHint || '').trim(),
-            tags: normalizeStringArray(operation.tags)
+            tags: coalesceEntryLabelList(operation.tags, operation.tag)
         };
     }
 
@@ -1441,6 +2017,105 @@ function applyAnvilOperations(world, operations = []) {
             }
             Object.assign(nextWorld, patch);
             nextWorld.themeKeywords = normalizeStringArray(nextWorld.themeKeywords);
+            appliedOperations.push(finalizedOperation);
+            continue;
+        }
+
+        if (operation.type === 'addSection') {
+            if (Object.prototype.hasOwnProperty.call(nextWorld.sections, operation.sectionName)) {
+                appliedOperations.push({
+                    ...finalizedOperation,
+                    status: 'rejected',
+                    reason: 'section_already_exists'
+                });
+                continue;
+            }
+            nextWorld.sections[operation.sectionName] = [];
+            appliedOperations.push(finalizedOperation);
+            continue;
+        }
+
+        if (operation.type === 'deleteSection') {
+            if (!Object.prototype.hasOwnProperty.call(nextWorld.sections, operation.sectionName)) {
+                appliedOperations.push({
+                    ...finalizedOperation,
+                    status: 'rejected',
+                    reason: 'section_not_found'
+                });
+                continue;
+            }
+            if (operation.sectionName === 'World') {
+                appliedOperations.push({
+                    ...finalizedOperation,
+                    status: 'rejected',
+                    reason: 'cannot_delete_world_section'
+                });
+                continue;
+            }
+            const entries = safeArray(nextWorld.sections[operation.sectionName]);
+            if (entries.length > 0) {
+                const dest = operation.relocateEntriesTo;
+                if (!dest) {
+                    appliedOperations.push({
+                        ...finalizedOperation,
+                        status: 'rejected',
+                        reason: 'deleteSection requires relocateEntriesTo when section is not empty'
+                    });
+                    continue;
+                }
+                if (dest === operation.sectionName) {
+                    appliedOperations.push({
+                        ...finalizedOperation,
+                        status: 'rejected',
+                        reason: 'relocateEntriesTo must differ from section being deleted'
+                    });
+                    continue;
+                }
+                nextWorld.sections[dest] = safeArray(nextWorld.sections[dest]);
+                for (const entry of entries) {
+                    entry.section = dest;
+                    entry.updatedAt = Date.now();
+                    nextWorld.sections[dest].push(entry);
+                }
+            }
+            delete nextWorld.sections[operation.sectionName];
+            appliedOperations.push(finalizedOperation);
+            continue;
+        }
+
+        if (operation.type === 'renameSection') {
+            if (!Object.prototype.hasOwnProperty.call(nextWorld.sections, operation.fromSection)) {
+                appliedOperations.push({
+                    ...finalizedOperation,
+                    status: 'rejected',
+                    reason: 'section_not_found'
+                });
+                continue;
+            }
+            if (operation.fromSection === 'World') {
+                appliedOperations.push({
+                    ...finalizedOperation,
+                    status: 'rejected',
+                    reason: 'cannot_rename_world_section'
+                });
+                continue;
+            }
+            if (Object.prototype.hasOwnProperty.call(nextWorld.sections, operation.toSection)) {
+                appliedOperations.push({
+                    ...finalizedOperation,
+                    status: 'rejected',
+                    reason: 'rename_target_section_already_exists'
+                });
+                continue;
+            }
+            const entries = safeArray(nextWorld.sections[operation.fromSection]);
+            delete nextWorld.sections[operation.fromSection];
+            const now = Date.now();
+            for (const entry of entries) {
+                entry.section = operation.toSection;
+                entry.updatedAt = now;
+            }
+            nextWorld.sections[operation.toSection] = entries;
             appliedOperations.push(finalizedOperation);
             continue;
         }
@@ -1557,6 +2232,7 @@ function createEmptyAnvilBrainstormSession(worldId) {
         messages: [],
         openAiMessages: [],
         lastProposedOperations: [],
+        worldCheckpoints: [],
         updatedAt: 0
     };
 }
@@ -1585,7 +2261,8 @@ async function loadAnvilBrainstormSession(worldId) {
         worldId,
         openAiMessages,
         messages,
-        lastProposedOperations: []
+        lastProposedOperations: [],
+        worldCheckpoints: safeArray(session.worldCheckpoints)
     };
 }
 
@@ -1596,10 +2273,31 @@ async function saveAnvilBrainstormSession(session) {
         messages: safeArray(session.messages),
         openAiMessages: safeArray(session.openAiMessages),
         lastProposedOperations: safeArray(session.lastProposedOperations),
+        worldCheckpoints: safeArray(session.worldCheckpoints),
         updatedAt: Date.now()
     };
     await writeJson(getAnvilChatPath(session.worldId), normalizedSession);
     return normalizedSession;
+}
+
+function cloneJson(value) {
+    return JSON.parse(JSON.stringify(value));
+}
+
+/** Snapshot after an assistant turn: display message count + world + provider message history */
+function buildBrainstormCheckpoint(messageLength, world, openAiMessages) {
+    return {
+        messageLength,
+        world: ensureAnvilWorldStructure(cloneJson(world)),
+        openAiMessages: cloneJson(safeArray(openAiMessages))
+    };
+}
+
+function mergeBrainstormCheckpoints(prevCheckpoints, messageLength, world, openAiMessages) {
+    const list = safeArray(prevCheckpoints).filter((c) => c && typeof c.messageLength === 'number');
+    const next = list.filter((c) => c.messageLength < messageLength);
+    next.push(buildBrainstormCheckpoint(messageLength, world, openAiMessages));
+    return next.sort((a, b) => a.messageLength - b.messageLength);
 }
 
 async function readJsonOrDefault(filePath, fallbackValue) {
@@ -1621,6 +2319,148 @@ async function writeJson(filePath, data) {
 
 function extractChatCompletionText(data) {
     return data?.choices?.[0]?.message?.content || data?.output_text || '';
+}
+
+/**
+ * Gemini image models (2.5 / 3.x flash-image, Nano Banana, etc.) use OpenAI-compatible
+ * POST /v1/chat/completions, not /v1/images/generations. Responses embed image as
+ * data URLs or nested inline_data in various shapes.
+ */
+function extractNestedImageBase64(node, depth = 0, seen = new WeakSet()) {
+    if (depth > 16 || node == null) return null;
+    if (typeof node === 'object' && node !== null) {
+        if (seen.has(node)) return null;
+        seen.add(node);
+    }
+
+    if (typeof node === 'string') {
+        const dm = node.match(/data:image\/[\w.+-]+;base64,([A-Za-z0-9+/=\s]+)/i);
+        if (dm && dm[1].replace(/\s/g, '').length > 80) {
+            return dm[1].replace(/\s/g, '');
+        }
+        return null;
+    }
+
+    if (Array.isArray(node)) {
+        for (const item of node) {
+            const r = extractNestedImageBase64(item, depth + 1, seen);
+            if (r) return r;
+        }
+        return null;
+    }
+
+    if (typeof node === 'object') {
+        if (node.type === 'image_url' && node.image_url?.url) {
+            const u = String(node.image_url.url);
+            const m = u.match(/^data:image\/[^;]+;base64,([A-Za-z0-9+/=]+)/i);
+            if (m) return m[1];
+        }
+        const inline = node.inlineData || node.inline_data;
+        if (inline?.data && /image/i.test(String(inline.mimeType || inline.mime_type || ''))) {
+            return String(inline.data).replace(/\s/g, '');
+        }
+        for (const k of Object.keys(node)) {
+            const r = extractNestedImageBase64(node[k], depth + 1, seen);
+            if (r) return r;
+        }
+    }
+    return null;
+}
+
+function extractBase64ImageFromChatCompletionResponse(apiData) {
+    const msg = apiData?.choices?.[0]?.message;
+    if (msg) {
+        const fromMsg = extractNestedImageBase64(msg);
+        if (fromMsg) return fromMsg;
+    }
+    return extractNestedImageBase64(apiData);
+}
+
+async function forwardGeminiImageViaOpenAiChat({
+    apiUrl,
+    apiKey,
+    payload,
+    localSaveDir,
+    localUrlPrefix,
+    filePrefix = 'img'
+}) {
+    const requestUrl = normalizeChatApiUrl(apiUrl);
+    const prompt = String(payload.prompt || '').trim() || 'Generate a single high-quality image matching the description.';
+    const ref = payload.image_url || payload.image;
+    const refStr = ref && typeof ref === 'string' ? ref.trim() : '';
+
+    let userContent;
+    if (refStr && (refStr.startsWith('data:') || /^https?:\/\//i.test(refStr))) {
+        userContent = [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: refStr } }
+        ];
+    } else {
+        userContent = prompt;
+    }
+
+    const chatBody = {
+        model: payload.model,
+        messages: [{ role: 'user', content: userContent }],
+        max_tokens: 8192
+    };
+
+    const response = await fetch(requestUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(chatBody)
+    });
+
+    const rawText = await response.text();
+    let data;
+    try {
+        data = rawText ? JSON.parse(rawText) : {};
+    } catch (_parseErr) {
+        return {
+            ok: false,
+            status: 502,
+            data: {
+                error: 'Image chat API did not return JSON.',
+                requestUrl,
+                preview: rawText.slice(0, 400)
+            }
+        };
+    }
+
+    if (!response.ok) {
+        return { ok: false, status: response.status, data, requestUrl };
+    }
+
+    const b64 = extractBase64ImageFromChatCompletionResponse(data);
+    if (!b64) {
+        return {
+            ok: false,
+            status: 502,
+            data: {
+                error:
+                    'No image found in chat completion response. The provider may use a different JSON shape, or the model returned text only.',
+                requestUrl,
+                preview: rawText.slice(0, 1200)
+            }
+        };
+    }
+
+    let wrapped = { data: [{ b64_json: b64 }] };
+    try {
+        wrapped = await saveGeneratedImageLocally(wrapped, localSaveDir, localUrlPrefix, filePrefix);
+    } catch (saveErr) {
+        console.error('[ERROR][IMAGE] Failed to save Gemini chat image:', saveErr);
+        return {
+            ok: false,
+            status: 500,
+            data: { error: 'Failed to save generated image.', requestUrl }
+        };
+    }
+
+    return { ok: true, status: response.status, data: wrapped, requestUrl };
 }
 
 async function saveGeneratedImageLocally(data, targetDir, urlPrefix, filePrefix = 'img') {
@@ -1688,14 +2528,30 @@ async function forwardImageGeneration({ apiUrl, apiKey, payload, localSaveDir, l
         }
     }
 
+    if (isGeminiNativeImageModel(payload.model)) {
+        return forwardGeminiImageViaOpenAiChat({
+            apiUrl,
+            apiKey,
+            payload,
+            localSaveDir,
+            localUrlPrefix,
+            filePrefix
+        });
+    }
+
     const requestUrl = normalizePainterApiUrl(apiUrl);
+    const outbound = { ...payload };
+    if (outbound.response_format == null) {
+        outbound.response_format = 'b64_json';
+    }
+
     const response = await fetch(requestUrl, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiKey}`
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(outbound)
     });
 
     const rawText = await response.text();
@@ -2182,7 +3038,7 @@ app.get('/gpt/anvil/world_remove/:id', async (req, res) => {
 });
 
 app.post('/gpt/anvil/asset/upload', (req, res) => {
-    anvilUpload.single('asset')(req, res, (err) => {
+    anvilUpload.single('asset')(req, res, async (err) => {
         if (err) {
             const isTooLarge = err.code === 'LIMIT_FILE_SIZE';
             return res.status(isTooLarge ? 413 : 400).json({
@@ -2192,6 +3048,20 @@ app.post('/gpt/anvil/asset/upload', (req, res) => {
 
         if (!req.file) {
             return res.status(400).json({ error: 'Missing asset file.' });
+        }
+
+        try {
+            const buf = await fsPromises.readFile(req.file.path);
+            if (!sniffImageMimeFromBuffer(buf)) {
+                await fsPromises.unlink(req.file.path).catch(() => {});
+                return res.status(400).json({
+                    error: 'Uploaded file is not a valid image (unrecognized or empty binary).'
+                });
+            }
+        } catch (readErr) {
+            await fsPromises.unlink(req.file.path).catch(() => {});
+            console.error('[ERROR][ANVIL] Asset upload validation failed:', readErr);
+            return res.status(500).json({ error: 'Could not validate uploaded image.' });
         }
 
         const relativeUrl = `./anvil_assets/${req.file.filename}`;
@@ -2248,11 +3118,117 @@ app.post('/gpt/anvil/brainstorm/session/:worldId/clear', async (req, res) => {
             return res.status(404).json({ error: 'Anvil world not found.' });
         }
 
-        const nextSession = await saveAnvilBrainstormSession(createEmptyAnvilBrainstormSession(worldId));
+        const w = await loadAnvilWorld(worldId);
+        const nextSession = await saveAnvilBrainstormSession({
+            ...createEmptyAnvilBrainstormSession(worldId),
+            worldCheckpoints: w ? [buildBrainstormCheckpoint(0, w, [])] : []
+        });
         res.json(nextSession);
     } catch (error) {
         console.error('[ERROR][ANVIL] Failed to clear brainstorm session:', error);
         res.status(500).json({ error: 'Failed to clear brainstorm session.' });
+    }
+});
+
+app.post('/gpt/anvil/brainstorm/session/:worldId/rollback', async (req, res) => {
+    try {
+        const worldId = req.params.worldId;
+        const rawIdx = req.body?.lastMessageIndex;
+        const lastMessageIndex = rawIdx === undefined || rawIdx === null ? NaN : Number(rawIdx);
+        if (!Number.isInteger(lastMessageIndex) || lastMessageIndex < -1) {
+            return res.status(400).json({ error: 'Invalid lastMessageIndex (integer >= -1).' });
+        }
+
+        const worldExists = await loadAnvilWorld(worldId);
+        if (!worldExists) {
+            return res.status(404).json({ error: 'Anvil world not found.' });
+        }
+
+        const session = await loadAnvilBrainstormSession(worldId);
+        const messages = safeArray(session.messages);
+        if (lastMessageIndex >= messages.length) {
+            return res.status(400).json({ error: 'lastMessageIndex out of range.' });
+        }
+
+        const truncated = lastMessageIndex < 0 ? [] : messages.slice(0, lastMessageIndex + 1);
+        const targetLen = truncated.length;
+        const checkpoints = safeArray(session.worldCheckpoints);
+
+        if (checkpoints.length === 0) {
+            return res.status(400).json({
+                error: 'No checkpoints in this session. Send at least one Copilot message after updating the app to enable rollback.'
+            });
+        }
+
+        const viable = checkpoints.filter(
+            (c) => c && typeof c.messageLength === 'number' && c.messageLength <= targetLen && c.world
+        );
+        const pick = viable.reduce((best, c) => {
+            if (!best || c.messageLength > best.messageLength) return c;
+            return best;
+        }, null);
+
+        if (!pick) {
+            return res.status(400).json({ error: 'No checkpoint covers this chat position.' });
+        }
+
+        const restored = ensureAnvilWorldStructure(cloneJson(pick.world));
+        const savedWorld = await saveAnvilWorld(restored);
+        const nextCheckpoints = checkpoints.filter((c) => c && typeof c.messageLength === 'number' && c.messageLength <= targetLen);
+
+        const nextSession = await saveAnvilBrainstormSession({
+            ...session,
+            messages: truncated,
+            openAiMessages: safeArray(pick.openAiMessages),
+            worldCheckpoints: nextCheckpoints
+        });
+
+        res.json({ session: nextSession, world: savedWorld });
+    } catch (error) {
+        console.error('[ERROR][ANVIL] Failed to rollback brainstorm session:', error);
+        res.status(500).json({ error: 'Failed to rollback brainstorm session.' });
+    }
+});
+
+app.post('/gpt/anvil/brainstorm/session/:worldId/plan-options', async (req, res) => {
+    try {
+        const worldId = req.params.worldId;
+        const world = await loadAnvilWorld(worldId);
+        if (!world) {
+            return res.status(404).json({ error: 'Anvil world not found.' });
+        }
+
+        const actions = safeArray(req.body?.actions);
+        if (!actions.length) {
+            return res.status(400).json({ error: 'Missing actions array.' });
+        }
+
+        const session = await loadAnvilBrainstormSession(worldId);
+        const messages = cloneJson(safeArray(session.messages));
+
+        for (const msg of messages) {
+            if (!msg || msg.role !== 'assistant' || !Array.isArray(msg.blocks)) continue;
+            for (const block of msg.blocks) {
+                if (!block || block.type !== 'plan_options' || !block.proposalId) continue;
+                const act = actions.find((a) => a && String(a.proposalId) === String(block.proposalId));
+                if (!act) continue;
+                if (block.state && block.state !== 'pending') continue;
+                const st = String(act.state || '').trim();
+                if (st !== 'chosen' && st !== 'dismissed') continue;
+                block.state = st;
+                if (act.choiceTitle != null) block.choiceTitle = String(act.choiceTitle);
+                if (act.choiceDetail != null) block.choiceDetail = String(act.choiceDetail);
+            }
+        }
+
+        const nextSession = await saveAnvilBrainstormSession({
+            ...session,
+            messages
+        });
+        res.json({ session: nextSession });
+    } catch (error) {
+        console.error('[ERROR][ANVIL] Failed to patch brainstorm plan options:', error);
+        res.status(500).json({ error: 'Failed to update plan options.' });
     }
 });
 
@@ -2314,20 +3290,38 @@ app.post('/gpt/anvil/brainstorm/chat', async (req, res) => {
         if (attachmentUrls.length) {
             userDisplay.attachmentUrls = attachmentUrls;
         }
+        let checkpoints = safeArray(session.worldCheckpoints);
+        if (checkpoints.length === 0) {
+            const w0 = await loadAnvilWorld(worldId);
+            const mlen = safeArray(session.messages).length;
+            const oa0 = safeArray(session.openAiMessages);
+            checkpoints =
+                mlen === 0
+                    ? [buildBrainstormCheckpoint(0, w0, oa0)]
+                    : [buildBrainstormCheckpoint(0, w0, []), buildBrainstormCheckpoint(mlen, w0, oa0)];
+        }
+        const nextMessages = [
+            ...safeArray(session.messages),
+            userDisplay,
+            {
+                role: 'assistant',
+                content: assistantMessage,
+                createdAt: now,
+                blocks: safeArray(result.displayBlocks)
+            }
+        ];
+        const nextWorld = ensureAnvilWorldStructure(result.world || (await loadAnvilWorld(worldId)));
         const nextSession = await saveAnvilBrainstormSession({
             ...session,
             openAiMessages: result.openAiMessages,
-            messages: [
-                ...safeArray(session.messages),
-                userDisplay,
-                {
-                    role: 'assistant',
-                    content: assistantMessage,
-                    createdAt: now,
-                    blocks: safeArray(result.displayBlocks)
-                }
-            ],
-            lastProposedOperations: []
+            messages: nextMessages,
+            lastProposedOperations: [],
+            worldCheckpoints: mergeBrainstormCheckpoints(
+                checkpoints,
+                nextMessages.length,
+                nextWorld,
+                result.openAiMessages
+            )
         });
 
         const lastTurn = result.aiTurnLog.length > 0 ? result.aiTurnLog[result.aiTurnLog.length - 1] : null;
@@ -2402,17 +3396,36 @@ app.post('/gpt/anvil/brainstorm/chat/stream', async (req, res) => {
             res.flushHeaders();
         }
 
-        const result = await runAnvilBrainstormWithToolsStreaming({
-            res,
-            apiUrl,
-            apiKey,
-            model,
-            worldId,
-            userOpenAiMessage,
-            openAiMessages: safeArray(session.openAiMessages),
-            activeSection,
-            activeEntryId
-        });
+        let clientClosed = false;
+        const onReqClose = () => {
+            clientClosed = true;
+        };
+        req.once('close', onReqClose);
+
+        let result;
+        try {
+            result = await runAnvilBrainstormWithToolsStreaming({
+                res,
+                apiUrl,
+                apiKey,
+                model,
+                worldId,
+                userOpenAiMessage,
+                openAiMessages: safeArray(session.openAiMessages),
+                activeSection,
+                activeEntryId,
+                isAborted: () => clientClosed || res.writableEnded
+            });
+        } finally {
+            req.removeListener('close', onReqClose);
+        }
+
+        if (result.error === 'aborted' || clientClosed) {
+            if (!res.writableEnded) {
+                res.end();
+            }
+            return;
+        }
 
         const assistantMessage = result.finalAssistantText || '…';
         const now = Date.now();
@@ -2424,20 +3437,38 @@ app.post('/gpt/anvil/brainstorm/chat/stream', async (req, res) => {
         if (attachmentUrls.length) {
             streamUserDisplay.attachmentUrls = attachmentUrls;
         }
+        let streamCheckpoints = safeArray(session.worldCheckpoints);
+        if (streamCheckpoints.length === 0) {
+            const wSeed = await loadAnvilWorld(worldId);
+            const mlen0 = safeArray(session.messages).length;
+            const oaSeed = safeArray(session.openAiMessages);
+            streamCheckpoints =
+                mlen0 === 0
+                    ? [buildBrainstormCheckpoint(0, wSeed, oaSeed)]
+                    : [buildBrainstormCheckpoint(0, wSeed, []), buildBrainstormCheckpoint(mlen0, wSeed, oaSeed)];
+        }
+        const streamNextMessages = [
+            ...safeArray(session.messages),
+            streamUserDisplay,
+            {
+                role: 'assistant',
+                content: assistantMessage,
+                createdAt: now,
+                blocks: safeArray(result.displayBlocks)
+            }
+        ];
+        const streamNextWorld = ensureAnvilWorldStructure(result.world || (await loadAnvilWorld(worldId)));
         const nextSession = await saveAnvilBrainstormSession({
             ...session,
             openAiMessages: result.openAiMessages,
-            messages: [
-                ...safeArray(session.messages),
-                streamUserDisplay,
-                {
-                    role: 'assistant',
-                    content: assistantMessage,
-                    createdAt: now,
-                    blocks: safeArray(result.displayBlocks)
-                }
-            ],
-            lastProposedOperations: []
+            messages: streamNextMessages,
+            lastProposedOperations: [],
+            worldCheckpoints: mergeBrainstormCheckpoints(
+                streamCheckpoints,
+                streamNextMessages.length,
+                streamNextWorld,
+                result.openAiMessages
+            )
         });
 
         sendBrainstormSse(res, {

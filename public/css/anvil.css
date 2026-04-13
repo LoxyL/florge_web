@@ -1167,6 +1167,10 @@ input[type="search"]::-webkit-search-results-decoration {
   justify-content: flex-end;
 }
 
+.copilot-turn[data-copilot-rollback-index] {
+  cursor: help;
+}
+
 .copilot-bubble {
   max-width: min(720px, 92%);
   border-radius: 20px;
@@ -1514,6 +1518,134 @@ input[type="search"]::-webkit-search-results-decoration {
 .copilot-dock-actions .button-ghost {
   min-height: 48px;
   border-radius: 16px;
+}
+
+.copilot-stop-btn {
+  font-size: 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  white-space: nowrap;
+  color: rgba(255, 180, 160, 0.95);
+  border-color: rgba(255, 120, 100, 0.35);
+}
+
+.copilot-stop-btn:hover:not(:disabled) {
+  background: rgba(255, 80, 60, 0.12);
+  border-color: rgba(255, 140, 120, 0.45);
+}
+
+.copilot-stop-btn:disabled {
+  opacity: 0.35;
+}
+
+.copilot-block--plan {
+  margin-top: 10px;
+}
+
+.copilot-plan-card {
+  border-radius: 14px;
+  border: 1px solid rgba(37, 194, 134, 0.28);
+  background: rgba(8, 18, 14, 0.88);
+  padding: 14px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.copilot-plan-card--dismissed {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.copilot-plan-card--chosen {
+  border-color: rgba(37, 194, 134, 0.45);
+}
+
+.copilot-plan-prompt {
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgba(244, 247, 250, 0.92);
+}
+
+.copilot-plan-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.copilot-plan-option {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.35);
+  color: #eef3f6;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.copilot-plan-option:hover:not(:disabled) {
+  border-color: rgba(37, 194, 134, 0.45);
+  background: rgba(37, 194, 134, 0.08);
+}
+
+.copilot-plan-option:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.copilot-plan-option-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.copilot-plan-option-detail {
+  font-size: 12px;
+  color: rgba(230, 238, 246, 0.65);
+  line-height: 1.4;
+}
+
+.copilot-plan-custom {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.copilot-plan-custom-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.copilot-plan-custom-input {
+  width: 100%;
+  min-height: 52px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.4);
+  color: #fff;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  overflow: hidden;
+}
+
+.copilot-plan-custom-send {
+  align-self: flex-start;
+  border-radius: 12px;
+  padding: 8px 14px;
+  font-size: 12px;
+}
+
+.copilot-plan-status {
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .copilot-typing {
@@ -2000,12 +2132,15 @@ input[type="search"]::-webkit-search-results-decoration {
 .section-board-peek {
   width: 96px;
   height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
   gap: 10px;
   padding: 14px 10px;
+  overflow: hidden;
+  box-sizing: border-box;
   background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.015) 100%);
   border-left: 1px solid rgba(255, 255, 255, 0.05);
 }
@@ -2023,9 +2158,27 @@ input[type="search"]::-webkit-search-results-decoration {
 .section-board-peek-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 10px;
+  grid-auto-rows: auto;
+  align-content: start;
+  gap: 8px;
   width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   margin-top: 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(157, 243, 208, 0.35) transparent;
+}
+
+.section-board-peek-grid::-webkit-scrollbar {
+  width: 5px;
+}
+
+.section-board-peek-grid::-webkit-scrollbar-thumb {
+  background: rgba(157, 243, 208, 0.28);
+  border-radius: 999px;
 }
 
 .section-board-peek-card {

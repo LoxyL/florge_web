@@ -11,7 +11,26 @@ const SECTION_ORDER = [
     'VisualLanguage'
 ];
 
+/** Only section keys that exist on the world; template names first (when present), then other keys A–Z. */
+function getWorldSectionNamesInOrder(world) {
+    if (!world?.sections) return [...SECTION_ORDER];
+    const keys = new Set(Object.keys(world.sections));
+    const ordered = [];
+    SECTION_ORDER.forEach((name) => {
+        if (keys.has(name)) ordered.push(name);
+    });
+    Object.keys(world.sections)
+        .sort((a, b) => a.localeCompare(b))
+        .forEach((k) => {
+            if (!ordered.includes(k)) ordered.push(k);
+        });
+    return ordered.length > 0 ? ordered : [...SECTION_ORDER];
+}
+
 const ENTRY_STATUSES = ['Seed', 'Draft', 'Review', 'Locked'];
+
+/** Collapsed Section Board strip: max thumbnails before scrolling (total count still shown in badge). */
+const SECTION_BOARD_PEEK_MAX = 24;
 
 const state = {
     worlds: [],
@@ -35,6 +54,8 @@ const state = {
     brainstormTestRunning: false,
     brainstormAttachments: [],
     copilotScenarioFixtureUrl: null,
+    copilotThreadStickToBottom: true,
+    copilotStreamAbortController: null,
     worldHeroAiPrompt: '',
     worldHeroAiResult: '',
     worldHeroAiLoading: false,
@@ -172,59 +193,59 @@ function initCustomSelects() {
 function enhanceCustomSelect(select) {
     if (!select || select.dataset.customSelectReady === 'true') return;
 
-    select.style.display = 'none';
+        select.style.display = 'none';
     select.dataset.customSelectReady = 'true';
-
-    const wrapper = document.createElement('div');
-    wrapper.className = 'custom-select-wrapper';
+        
+        const wrapper = document.createElement('div');
+        wrapper.className = 'custom-select-wrapper';
     if (select.dataset.selectPlacement === 'up') {
         wrapper.classList.add('custom-select-placement-up');
     }
-    select.parentNode.insertBefore(wrapper, select);
-
-    const trigger = document.createElement('div');
-    trigger.className = 'custom-select-trigger';
-    trigger.innerHTML = `<span>${escapeHtml(select.options[select.selectedIndex]?.text || '')}</span><span class="custom-select-arrow"></span>`;
-
-    const optionsDiv = document.createElement('div');
-    optionsDiv.className = 'custom-select-options';
-
+        select.parentNode.insertBefore(wrapper, select);
+        
+        const trigger = document.createElement('div');
+        trigger.className = 'custom-select-trigger';
+        trigger.innerHTML = `<span>${escapeHtml(select.options[select.selectedIndex]?.text || '')}</span><span class="custom-select-arrow"></span>`;
+        
+        const optionsDiv = document.createElement('div');
+        optionsDiv.className = 'custom-select-options';
+        
     Array.from(select.options).forEach((option) => {
-        const optDiv = document.createElement('div');
-        optDiv.className = 'custom-select-option';
-        optDiv.textContent = option.text;
-        optDiv.dataset.value = option.value;
-        if (option.selected) optDiv.classList.add('selected');
-
-        optDiv.addEventListener('click', () => {
-            select.value = option.value;
-            trigger.querySelector('span').textContent = option.text;
-            select.dispatchEvent(new Event('change'));
-
+            const optDiv = document.createElement('div');
+            optDiv.className = 'custom-select-option';
+            optDiv.textContent = option.text;
+            optDiv.dataset.value = option.value;
+            if (option.selected) optDiv.classList.add('selected');
+            
+            optDiv.addEventListener('click', () => {
+                select.value = option.value;
+                trigger.querySelector('span').textContent = option.text;
+                select.dispatchEvent(new Event('change'));
+                
             optionsDiv.querySelectorAll('.custom-select-option').forEach((element) => element.classList.remove('selected'));
-            optDiv.classList.add('selected');
-
-            wrapper.classList.remove('open');
+                optDiv.classList.add('selected');
+                
+                wrapper.classList.remove('open');
+            });
+            optionsDiv.appendChild(optDiv);
         });
-        optionsDiv.appendChild(optDiv);
-    });
-
-    wrapper.appendChild(trigger);
-    wrapper.appendChild(optionsDiv);
-
+        
+        wrapper.appendChild(trigger);
+        wrapper.appendChild(optionsDiv);
+        
     trigger.addEventListener('click', (event) => {
         event.stopPropagation();
         document.querySelectorAll('.custom-select-wrapper').forEach((element) => {
             if (element !== wrapper) element.classList.remove('open');
+            });
+            wrapper.classList.toggle('open');
         });
-        wrapper.classList.toggle('open');
-    });
-
-    select.addEventListener('change', () => {
-        trigger.querySelector('span').textContent = select.options[select.selectedIndex]?.text || '';
+        
+        select.addEventListener('change', () => {
+            trigger.querySelector('span').textContent = select.options[select.selectedIndex]?.text || '';
         optionsDiv.querySelectorAll('.custom-select-option').forEach((element) => {
             element.classList.toggle('selected', element.dataset.value === select.value);
-        });
+            });
     });
 }
 
@@ -287,7 +308,7 @@ function ensureWorldShape(world) {
     if (!world) return null;
 
     const sections = {};
-    SECTION_ORDER.forEach((sectionName) => {
+    getWorldSectionNamesInOrder(world).forEach((sectionName) => {
         sections[sectionName] = Array.isArray(world.sections?.[sectionName])
             ? world.sections[sectionName].map((entry) => ({
                 images: [],
@@ -325,6 +346,7 @@ function createEmptyBrainstormSession(worldId) {
         messages: [],
         openAiMessages: [],
         lastProposedOperations: [],
+        worldCheckpoints: [],
         updatedAt: 0
     };
 }
@@ -346,8 +368,67 @@ function setBrainstormSession(session) {
         ...session,
         messages: Array.isArray(session.messages) ? session.messages : [],
         openAiMessages: Array.isArray(session.openAiMessages) ? session.openAiMessages : [],
-        lastProposedOperations: Array.isArray(session.lastProposedOperations) ? session.lastProposedOperations : []
+        lastProposedOperations: Array.isArray(session.lastProposedOperations) ? session.lastProposedOperations : [],
+        worldCheckpoints: Array.isArray(session.worldCheckpoints) ? session.worldCheckpoints : []
     };
+}
+
+function collectPendingPlanProposalIds(session) {
+    const ids = [];
+    const messages = Array.isArray(session?.messages) ? session.messages : [];
+    for (const msg of messages) {
+        if (msg.role !== 'assistant' || !Array.isArray(msg.blocks)) continue;
+        for (const b of msg.blocks) {
+            if (b.type === 'plan_options' && b.state === 'pending' && b.proposalId) {
+                ids.push(b.proposalId);
+            }
+        }
+    }
+    return ids;
+}
+
+async function dismissCopilotPendingPlanOptions() {
+    const worldId = state.currentWorld?.id;
+    if (!worldId) return;
+    const ids = collectPendingPlanProposalIds(getBrainstormSession(worldId));
+    if (!ids.length) return;
+    try {
+        const response = await fetch(
+            `/gpt/anvil/brainstorm/session/${encodeURIComponent(worldId)}/plan-options`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    actions: ids.map((proposalId) => ({ proposalId, state: 'dismissed' }))
+                })
+            }
+        );
+        const data = await response.json().catch(() => ({}));
+        if (response.ok && data.session) {
+            setBrainstormSession(data.session);
+        }
+    } catch (err) {
+        console.warn('[Anvil Copilot] Could not dismiss pending plan options:', err);
+    }
+}
+
+async function patchCopilotPlanOptions(actions) {
+    const worldId = state.currentWorld?.id;
+    if (!worldId || !actions?.length) return false;
+    const response = await fetch(
+        `/gpt/anvil/brainstorm/session/${encodeURIComponent(worldId)}/plan-options`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ actions })
+        }
+    );
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : `HTTP ${response.status}`);
+    }
+    if (data.session) setBrainstormSession(data.session);
+    return true;
 }
 
 async function loadBrainstormSession(worldId) {
@@ -528,6 +609,9 @@ function createEntry(sectionName = state.activeSection) {
 
     const title = `New ${sectionName} Entry`;
 
+    if (!state.currentWorld.sections[sectionName]) {
+        state.currentWorld.sections[sectionName] = [];
+    }
     const entry = createEmptyEntry(sectionName, title);
     state.currentWorld.sections[sectionName].unshift(entry);
     state.activeSection = sectionName;
@@ -627,8 +711,9 @@ function normalizeTagList(value) {
 }
 
 function summarizeWorld(world) {
+    const names = getWorldSectionNamesInOrder(world);
     let entryCount = 0;
-    SECTION_ORDER.forEach((sectionName) => {
+    names.forEach((sectionName) => {
         entryCount += world.sections[sectionName]?.length || 0;
     });
 
@@ -641,7 +726,7 @@ function summarizeWorld(world) {
         createdAt: world.createdAt,
         themeKeywords: world.themeKeywords,
         entryCount,
-        sectionCount: SECTION_ORDER.length,
+        sectionCount: names.length,
         characterCount: world.sections.Characters?.length || 0,
         regionCount: world.sections.Regions?.length || 0
     };
@@ -798,7 +883,7 @@ function renderSectionBoardPeek(entries = null) {
         return;
     }
 
-    const previewEntries = (entries || getFilteredEntries()).slice(0, 3);
+    const previewEntries = (entries || getFilteredEntries()).slice(0, SECTION_BOARD_PEEK_MAX);
     const count = entries ? entries.length : getFilteredEntries().length;
     const cardsMarkup = previewEntries.length > 0
         ? previewEntries.map((entry) => {
@@ -862,7 +947,7 @@ function renderSectionList() {
         return;
     }
 
-    dom.sectionList.innerHTML = SECTION_ORDER.map((sectionName) => {
+    dom.sectionList.innerHTML = getWorldSectionNamesInOrder(state.currentWorld).map((sectionName) => {
         const count = state.currentWorld.sections?.[sectionName]?.length || 0;
         return `
             <div class="section-item ${sectionName === state.activeSection ? 'active' : ''}" data-section-name="${sectionName}">
@@ -1212,8 +1297,9 @@ function renderEntryStudio() {
 
     dom.studioTitle.textContent = entry.title || 'Untitled Entry';
 
-    const allOtherEntries = SECTION_ORDER.flatMap((sectionName) => state.currentWorld.sections[sectionName] || [])
-        .filter((candidate) => candidate.id !== entry.id);
+    const allOtherEntries = getWorldSectionNamesInOrder(state.currentWorld).flatMap(
+        (sectionName) => state.currentWorld.sections[sectionName] || []
+    ).filter((candidate) => candidate.id !== entry.id);
 
     const imagesMarkup = entry.images?.length
         ? entry.images.map((image, index) => renderImageTile(image, index)).join('')
@@ -1341,6 +1427,11 @@ function syncCopilotDockBusyState() {
     dom.brainstormPanel.querySelector('[data-brainstorm-send="true"]')?.toggleAttribute('disabled', sending);
     const sendBtn = dom.brainstormPanel.querySelector('[data-brainstorm-send="true"]');
     if (sendBtn) sendBtn.textContent = sending ? '…' : 'Send';
+    const stopBtn = dom.brainstormPanel.querySelector('[data-copilot-stop="true"]');
+    if (stopBtn) {
+        stopBtn.toggleAttribute('disabled', !sending);
+        stopBtn.setAttribute('aria-busy', sending ? 'true' : 'false');
+    }
     dom.brainstormPanel.querySelector('[data-brainstorm-attach-pick="true"]')?.toggleAttribute('disabled', sending || testing);
     dom.brainstormPanel.querySelector('[data-copilot-clear-chat="true"]')?.toggleAttribute('disabled', sending || testing);
     dom.brainstormPanel.querySelector('[data-copilot-self-test="true"]')?.toggleAttribute('disabled', sending || testing);
@@ -1429,13 +1520,16 @@ function refreshCopilotThreadDom() {
     if (!thread) return;
     const session = getBrainstormSession();
     const messages = Array.isArray(session.messages) ? session.messages : [];
-    
-    const wasScrolledToBottom = Math.abs((thread.scrollHeight - thread.scrollTop) - thread.clientHeight) < 10;
-    
+
+    thread.onscroll = () => {
+        const gap = thread.scrollHeight - thread.scrollTop - thread.clientHeight;
+        state.copilotThreadStickToBottom = gap < 56;
+    };
+
     thread.innerHTML = renderCopilotMessageListHtml(messages, state.brainstormPendingTurn);
-    
-    if (wasScrolledToBottom) {
-        scrollCopilotThreadToBottom();
+
+    if (state.copilotThreadStickToBottom) {
+        scrollCopilotThreadToBottom(true);
     }
 }
 
@@ -1445,11 +1539,12 @@ function updateCopilotStreamBody(text) {
     if (el) {
         el.textContent = text;
     }
+    if (!state.copilotThreadStickToBottom) return;
     if (!copilotStreamScrollRaf) {
         copilotStreamScrollRaf = true;
         requestAnimationFrame(() => {
             copilotStreamScrollRaf = false;
-            scrollCopilotThreadToBottom();
+            scrollCopilotThreadToBottom(true);
         });
     }
 }
@@ -1477,13 +1572,13 @@ function renderCopilotToolCallRow(call) {
                 <span class="copilot-tool-call-status copilot-tool-call-status--${state}">${
                     state === 'running' ? 'Running' : 'Done'
                 }</span>
-            </div>
+                </div>
             <div class="copilot-tool-call-panel-wrapper">
                 <div class="copilot-tool-call-panel">
                     <div class="copilot-tool-call-section">
                         <div class="copilot-tool-call-label">Arguments</div>
                         <pre class="copilot-tool-call-pre">${escapeHtml(argsFormatted)}</pre>
-                    </div>
+            </div>
                     <div class="copilot-tool-call-section">
                         <div class="copilot-tool-call-label">Result</div>
                         <pre class="copilot-tool-call-pre">${resultText ? escapeHtml(resultText) : '—'}</pre>
@@ -1491,6 +1586,39 @@ function renderCopilotToolCallRow(call) {
                 </div>
             </div>
         </div>`;
+}
+
+function renderCopilotPlanOptionsBlock(block) {
+    if (!block || block.type !== 'plan_options') return '';
+    const proposalId = escapeAttribute(block.proposalId || '');
+    const st = block.state || 'pending';
+    const promptHtml = block.prompt
+        ? `<div class="copilot-plan-prompt">${escapeHtml(block.prompt)}</div>`
+        : '';
+    const opts = (Array.isArray(block.options) ? block.options : [])
+        .map((o) => {
+            const oid = escapeAttribute(String(o.id || ''));
+            const title = escapeHtml(o.title || '');
+            const det = o.detail ? escapeHtml(o.detail) : '';
+            const dis = st !== 'pending' ? ' disabled' : '';
+            return `<button type="button" class="copilot-plan-option"${dis} data-copilot-plan-pick="true" data-plan-proposal-id="${proposalId}" data-plan-option-id="${oid}"><span class="copilot-plan-option-title">${title}</span>${
+                det ? `<span class="copilot-plan-option-detail">${det}</span>` : ''
+            }</button>`;
+        })
+        .join('');
+    const custom =
+        st === 'pending'
+            ? `<div class="copilot-plan-custom"><div class="muted copilot-plan-custom-label">Custom direction</div><textarea class="copilot-plan-custom-input" rows="2" placeholder="Type your own direction…" data-copilot-plan-custom-input data-plan-proposal-id="${proposalId}"></textarea><button type="button" class="button-secondary copilot-plan-custom-send" data-copilot-plan-custom-send="true" data-plan-proposal-id="${proposalId}">Send custom</button></div>`
+            : '';
+    let status = '';
+    if (st === 'chosen') {
+        const ct = escapeHtml(block.choiceTitle || '');
+        const cd = block.choiceDetail ? escapeHtml(block.choiceDetail) : '';
+        status = `<div class="copilot-plan-status muted">Selected: ${ct}${cd ? ` — ${cd}` : ''}</div>`;
+    } else if (st === 'dismissed') {
+        status = '<div class="copilot-plan-status muted">Skipped — you continued in the composer</div>';
+    }
+    return `<div class="copilot-plan-card copilot-plan-card--${escapeAttribute(st)}" data-copilot-plan-card="true" data-plan-proposal-id="${proposalId}">${promptHtml}<div class="copilot-plan-options">${opts}</div>${custom}${status}</div>`;
 }
 
 function renderCopilotBlocksHtml(blocks) {
@@ -1503,6 +1631,9 @@ function renderCopilotBlocksHtml(blocks) {
             if (block.type === 'tools' && Array.isArray(block.calls) && block.calls.length > 0) {
                 const rows = block.calls.map((c) => renderCopilotToolCallRow(c)).join('');
                 return `<div class="copilot-tool-stack">${rows}</div>`;
+            }
+            if (block.type === 'plan_options' && Array.isArray(block.options) && block.options.length > 0) {
+                return `<div class="copilot-block copilot-block--plan">${renderCopilotPlanOptionsBlock(block)}</div>`;
             }
             return '';
         })
@@ -1563,6 +1694,7 @@ function renderCopilotMessageListHtml(messages, pendingTurn) {
             </div>`;
     }
 
+    const savedMessageCount = Array.isArray(messages) ? messages.length : 0;
     const list = Array.isArray(messages) ? [...messages] : [];
     if (pendingTurn) {
         list.push({
@@ -1587,7 +1719,7 @@ function renderCopilotMessageListHtml(messages, pendingTurn) {
             <div class="copilot-thread-empty">
                 <div class="copilot-welcome-icon" aria-hidden="true"></div>
                 <h3 class="copilot-welcome-title">World Copilot</h3>
-                <p class="copilot-welcome-text">Ask anything about this world. Replies stream in real time; tools read and update your canon when needed.</p>
+                <p class="copilot-welcome-text">Ask anything about this world. Replies stream in real time; tools read and update your canon when needed. The model can offer direction picks (like a plan); choose in the card, use Custom, or just send a new message to skip. Use Stop to cancel generation. Ctrl+hold (⌘+hold on Mac) a past message to revert chat and the world to that point.</p>
             </div>`;
     }
 
@@ -1605,13 +1737,17 @@ function renderCopilotMessageListHtml(messages, pendingTurn) {
                   : renderAssistantBubbleInner(message);
             
             const isAnimate = index >= list.length - 2;
+            const rollbackAttr =
+                index < savedMessageCount && !message.pending && (isUser || role === 'assistant' || isSystem)
+                    ? ` data-copilot-rollback-index="${index}" title="Ctrl+hold: revert chat and world to here"`
+                    : '';
 
             return `
-                <div class="copilot-turn ${isUser ? 'copilot-turn--user' : ''} ${isAnimate ? 'copilot-turn--animate' : ''}">
+                <div class="copilot-turn ${isUser ? 'copilot-turn--user' : ''} ${isAnimate ? 'copilot-turn--animate' : ''}"${rollbackAttr}>
                     <div class="${bubbleClass}">
                         <div class="copilot-bubble-meta">${escapeHtml(label)} · ${formatTimestamp(message.createdAt)}</div>
                         ${body}
-                    </div>
+            </div>
                 </div>`;
         })
         .join('');
@@ -1619,11 +1755,11 @@ function renderCopilotMessageListHtml(messages, pendingTurn) {
     return bubbles;
 }
 
-function scrollCopilotThreadToBottom() {
+function scrollCopilotThreadToBottom(instant = false) {
     const thread = dom.brainstormPanel?.querySelector('.copilot-thread');
     if (thread) {
         requestAnimationFrame(() => {
-            thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' });
+            thread.scrollTo({ top: thread.scrollHeight, behavior: instant ? 'auto' : 'smooth' });
         });
     }
 }
@@ -1669,6 +1805,8 @@ async function readBrainstormSseStream(response, handlers = {}) {
                     handlers.onStep?.(json);
                 } else if (json.type === 'error') {
                     handlers.onError?.(json.message || 'Unknown error');
+                } else if (json.type === 'plan_options') {
+                    handlers.onPlanOptions?.(json);
                 } else if (json.type === 'done') {
                     donePayload = json;
                     handlers.onDone?.(json);
@@ -1683,12 +1821,49 @@ async function readBrainstormSseStream(response, handlers = {}) {
 async function uploadCopilotScenarioFixturePng() {
     const worldId = state.currentWorld?.id;
     if (!worldId) return null;
-    const base64 =
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQG/CPcY5QAAAABJRU5ErkJggg==';
-    const binary = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-    const blob = new Blob([binary], { type: 'image/png' });
+
+    /**
+     * Use a small real raster. JPEG often survives third-party OpenAI-compatible gateways
+     * that mishandle PNG/base64; server re-sniffs MIME from bytes before sending to the model.
+     */
+    let blob;
+    try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 128;
+        canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('Canvas 2D unavailable');
+        const grd = ctx.createLinearGradient(0, 0, 128, 128);
+        grd.addColorStop(0, '#143d2b');
+        grd.addColorStop(1, '#c75b2a');
+        ctx.fillStyle = grd;
+        ctx.fillRect(0, 0, 128, 128);
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+        ctx.lineWidth = 4;
+        ctx.strokeRect(8, 8, 112, 112);
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.font = 'bold 32px system-ui, -apple-system, sans-serif';
+        ctx.fillText('QA', 38, 82);
+        blob = await new Promise((resolve, reject) => {
+            canvas.toBlob(
+                (b) => {
+                    if (b && b.size > 400) resolve(b);
+                    else reject(new Error('toBlob too small or null'));
+                },
+                'image/jpeg',
+                0.92
+            );
+        });
+    } catch (canvasErr) {
+        console.error(
+            '[Scenario Test] Canvas JPEG fixture failed; skipping upload (multimodal / append-image steps will skip).',
+            canvasErr
+        );
+        return null;
+    }
+
     const formData = new FormData();
-    formData.append('asset', blob, 'copilot-qa-pixel.png');
+    formData.append('asset', blob, 'copilot-qa-fixture.jpg');
     formData.append('worldId', worldId);
     const response = await fetch('/gpt/anvil/asset/upload', { method: 'POST', body: formData });
     const data = await response.json().catch(() => ({}));
@@ -1720,6 +1895,18 @@ const COPILOT_SCENARIO_STEPS = [
         prompt:
             'Please say hello in a short, natural English sentence (no lists or Markdown). This step only verifies the chat flow.',
         checkReply: (text) => String(text || '').trim().length > 4
+    },
+    {
+        id: '1b_multimodal_attachment',
+        shouldRun: () => Boolean(state.copilotScenarioFixtureUrl),
+        attachmentUrls: () =>
+            state.copilotScenarioFixtureUrl ? [String(state.copilotScenarioFixtureUrl)] : [],
+        prompt: [
+            'Automated QA: the user attached one Anvil asset image.',
+            'In plain English, say in one short sentence what you see (e.g. dominant color). Do not call tools.',
+            'The last line MUST be exactly: MULTIMODAL_OK'
+        ].join('\n'),
+        checkReply: (text) => /MULTIMODAL_OK\s*$/m.test(String(text || ''))
     },
     {
         id: '2_world_shell',
@@ -1875,6 +2062,164 @@ const COPILOT_SCENARIO_STEPS = [
             const s = String(world?.summary || '');
             return n.includes('Vol 1 Final') && s.includes('Salt Tax Archive');
         }
+    },
+    {
+        id: '10_list_sections_entries',
+        prompt: [
+            'Automated QA for read-only listing tools. Do NOT call anvil_get_world_digest in this turn.',
+            '1) Call anvil_list_sections once.',
+            '2) Call anvil_list_section_entries with section_name exactly "Regions" (so we exercise the filtered list API).',
+            'Reply in one short English sentence stating whether "Salt Frost Strait" appears in that Regions list output.',
+            'The last line MUST be exactly: LIST_TOOLS_OK'
+        ].join('\n'),
+        checkReply: (text) => /LIST_TOOLS_OK\s*$/m.test(String(text || '')),
+        verifyWorld: (world) => {
+            const regions = Array.isArray(world?.sections?.Regions) ? world.sections.Regions : [];
+            return regions.some((e) => String(e.title || '').trim() === 'Salt Frost Strait');
+        }
+    },
+    {
+        id: '11_propose_directions',
+        prompt: [
+            'Automated QA for the plan UI tool. You MUST call anvil_propose_directions exactly once this turn.',
+            'Use prompt: "Which QA subplot should we expand next?"',
+            'Provide exactly 3 options with distinct ids a, b, c and short titles (e.g. customs intrigue, lighthouse myth, pilot backstory).',
+            'After the tool returns, add one short English sentence telling the user they can pick in the panel.',
+            'The last line MUST be exactly: PROPOSE_TOOLS_OK'
+        ].join('\n'),
+        checkReply: (text) => /PROPOSE_TOOLS_OK\s*$/m.test(String(text || '')),
+        verifySession: (session) => {
+            const msgs = Array.isArray(session?.messages) ? session.messages : [];
+            for (let i = msgs.length - 1; i >= 0; i -= 1) {
+                const m = msgs[i];
+                if (!m || m.role !== 'assistant' || !Array.isArray(m.blocks)) continue;
+                const ok = m.blocks.some(
+                    (b) =>
+                        b &&
+                        b.type === 'plan_options' &&
+                        Array.isArray(b.options) &&
+                        b.options.length >= 2 &&
+                        b.options.length <= 6
+                );
+                if (ok) return true;
+            }
+            return false;
+        },
+        afterStep: dismissCopilotPendingPlanOptions
+    },
+    {
+        id: '12_add_section_and_entry',
+        prompt: [
+            COPILOT_SCENARIO_NO_DUP_RULE,
+            'Automated QA for addSection + createEntry (metadata required).',
+            '1) anvil_get_world_digest.',
+            '2) anvil_apply_world_operations: addSection with sectionName exactly "QA Copilot Annex" (skip addSection if that section already exists).',
+            '3) In section "QA Copilot Annex", ONLY if NO entry is titled exactly "Annex Clerk Docket", createEntry with:',
+            '   title "Annex Clerk Docket", summary two sentences, content two sentences, status Draft,',
+            '   tags at least: ["annex", "QA", "clerical"], styleKeywords at least: ["ledger glow", "harbor paperwork", "amber lamp"].',
+            'If the entry already exists, only updateEntryFields to ensure those tags and styleKeywords are present.',
+            'The last line MUST be exactly: ANNEX_SECTION_OK'
+        ].join('\n'),
+        checkReply: (text) => /ANNEX_SECTION_OK\s*$/m.test(String(text || '')),
+        verifyWorld: (world) => {
+            const sec = world?.sections?.['QA Copilot Annex'];
+            if (!Array.isArray(sec)) return false;
+            const ent = sec.find((e) => String(e.title || '').trim() === 'Annex Clerk Docket');
+            if (!ent) return false;
+            const tags = Array.isArray(ent.tags) ? ent.tags.map(String) : [];
+            const styles = Array.isArray(ent.styleKeywords) ? ent.styleKeywords.map(String) : [];
+            const tagOk = tags.includes('annex') && tags.includes('QA') && tags.includes('clerical');
+            const styleOk =
+                styles.some((s) => /ledger/i.test(s)) &&
+                styles.some((s) => /paperwork|harbor/i.test(s)) &&
+                styles.some((s) => /amber|lamp/i.test(s));
+            return tagOk && styleOk;
+        }
+    },
+    {
+        id: '13_rename_section',
+        prompt: [
+            'Automated QA for renameSection.',
+            'Use anvil_list_sections to confirm "QA Copilot Annex" exists; then anvil_apply_world_operations with renameSection:',
+            'fromSection "QA Copilot Annex", toSection "QA Copilot Annex Renamed".',
+            'If already renamed, skip. Move all entries with the rename (entries stay under the new section name).',
+            'The last line MUST be exactly: RENAME_SECTION_OK'
+        ].join('\n'),
+        checkReply: (text) => /RENAME_SECTION_OK\s*$/m.test(String(text || '')),
+        verifyWorld: (world) => {
+            const oldSec = world?.sections?.['QA Copilot Annex'];
+            const newSec = world?.sections?.['QA Copilot Annex Renamed'];
+            if (Array.isArray(oldSec) && oldSec.length > 0) return false;
+            if (!Array.isArray(newSec)) return false;
+            return newSec.some((e) => String(e.title || '').trim() === 'Annex Clerk Docket');
+        }
+    },
+    {
+        id: '14_delete_entry',
+        prompt: [
+            'Automated QA for deleteEntry.',
+            'Use anvil_list_section_entries with section_name "QA Copilot Annex Renamed" to find the entry id for title exactly "Annex Clerk Docket".',
+            'Then anvil_apply_world_operations: deleteEntry with that entryId.',
+            'The last line MUST be exactly: DELETE_ENTRY_OK'
+        ].join('\n'),
+        checkReply: (text) => /DELETE_ENTRY_OK\s*$/m.test(String(text || '')),
+        verifyWorld: (world) => {
+            const sec = world?.sections?.['QA Copilot Annex Renamed'];
+            if (!Array.isArray(sec)) return false;
+            return !sec.some((e) => String(e.title || '').trim() === 'Annex Clerk Docket');
+        }
+    },
+    {
+        id: '15_delete_section',
+        prompt: [
+            'Automated QA for deleteSection on an empty custom section.',
+            'anvil_list_sections to confirm "QA Copilot Annex Renamed" has zero entries; then deleteSection with sectionName "QA Copilot Annex Renamed" (no relocateEntriesTo needed if empty).',
+            'If the section is already gone, reply that it is already deleted and still end with the marker line.',
+            'The last line MUST be exactly: DELETE_SECTION_OK'
+        ].join('\n'),
+        checkReply: (text) => /DELETE_SECTION_OK\s*$/m.test(String(text || '')),
+        verifyWorld: (world) => {
+            const sec = world?.sections?.['QA Copilot Annex Renamed'];
+            return sec == null || (Array.isArray(sec) && sec.length === 0);
+        }
+    },
+    {
+        id: '16_style_keywords_update',
+        prompt: [
+            'Automated QA for updateEntryFields with styleKeywords (and tags if missing).',
+            'Use anvil_get_entry on the Characters entry whose title is exactly "Ellie Salt-Lamp" (get entry_id from digest or list_section_entries).',
+            'Then anvil_apply_world_operations: updateEntryFields ensuring styleKeywords includes the exact phrase "QA brush-pass haze" and tags includes "copilot-qa".',
+            'Do not remove her existing lore text; only merge metadata fields as needed.',
+            'The last line MUST be exactly: STYLE_PATCH_OK'
+        ].join('\n'),
+        checkReply: (text) => /STYLE_PATCH_OK\s*$/m.test(String(text || '')),
+        verifyWorld: (world) => {
+            const chars = Array.isArray(world?.sections?.Characters) ? world.sections.Characters : [];
+            const ellie = chars.find((e) => String(e.title || '').trim() === 'Ellie Salt-Lamp');
+            if (!ellie) return false;
+            const tags = Array.isArray(ellie.tags) ? ellie.tags.map(String) : [];
+            const styles = Array.isArray(ellie.styleKeywords) ? ellie.styleKeywords.map(String) : [];
+            return tags.includes('copilot-qa') && styles.some((s) => s.includes('QA brush-pass haze'));
+        }
+    },
+    {
+        id: '17_delete_section_relocate',
+        prompt: [
+            COPILOT_SCENARIO_NO_DUP_RULE,
+            'Automated QA for deleteSection on a NON-empty section (relocateEntriesTo is required).',
+            '1) anvil_get_world_digest.',
+            '2) addSection with sectionName exactly "QA Relocate Bin" if that section key is missing.',
+            '3) In section "QA Relocate Bin": only if NO entry is titled exactly "QA Relocate Canary", createEntry with title "QA Relocate Canary", one-sentence summary, one-sentence content, status Draft, tags ["QA","reloc","canary"], styleKeywords ["flat icon","test asset","harbor QA"].',
+            '4) anvil_apply_world_operations: deleteSection with sectionName "QA Relocate Bin" and relocateEntriesTo exactly "World".',
+            'The last line MUST be exactly: RELOC_DELETE_OK'
+        ].join('\n'),
+        checkReply: (text) => /RELOC_DELETE_OK\s*$/m.test(String(text || '')),
+        verifyWorld: (world) => {
+            const bin = world?.sections?.['QA Relocate Bin'];
+            if (Array.isArray(bin) && bin.length > 0) return false;
+            const w = Array.isArray(world?.sections?.World) ? world.sections.World : [];
+            return w.some((e) => String(e.title || '').trim() === 'QA Relocate Canary');
+        }
     }
 ];
 
@@ -1886,97 +2231,154 @@ async function sendBrainstormStreamRequest(userMessage, attachmentUrls = []) {
 
     const urls = Array.isArray(attachmentUrls) ? attachmentUrls.map((u) => String(u || '').trim()).filter(Boolean) : [];
 
-    const response = await fetch('/gpt/anvil/brainstorm/chat/stream', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            worldId: state.currentWorld.id,
-            apiUrl: textConfig.apiUrl,
-            apiKey: textConfig.apiKey,
-            model: textConfig.model,
-            message: userMessage,
-            attachmentUrls: urls,
-            activeSection: state.activeSection,
-            activeEntryId: state.activeEntryId
-        })
-    });
+    const brainstormStreamBody = {
+        worldId: state.currentWorld.id,
+        apiUrl: textConfig.apiUrl,
+        apiKey: textConfig.apiKey,
+        model: textConfig.model,
+        message: userMessage,
+        attachmentUrls: urls,
+        activeSection: state.activeSection,
+        activeEntryId: state.activeEntryId
+    };
+
+    try {
+        const logBody = {
+            ...brainstormStreamBody,
+            apiKey: textConfig.apiKey ? '***redacted***' : ''
+        };
+        console.groupCollapsed('[Anvil Copilot → server] POST /gpt/anvil/brainstorm/chat/stream');
+        console.log('payload (apiKey redacted):', logBody);
+        console.log('JSON:', JSON.stringify(logBody, null, 2));
+        console.groupEnd();
+    } catch (_e) {
+        /* ignore */
+    }
+
+    state.copilotStreamAbortController = new AbortController();
+    const { signal } = state.copilotStreamAbortController;
+
+    let response;
+    try {
+        response = await fetch('/gpt/anvil/brainstorm/chat/stream', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(brainstormStreamBody),
+            signal
+        });
+    } catch (fetchErr) {
+        state.copilotStreamAbortController = null;
+        if (fetchErr?.name === 'AbortError') {
+            return { aborted: true };
+        }
+        throw fetchErr;
+    }
 
     if (!response.ok) {
+        state.copilotStreamAbortController = null;
         const errJson = await response.json().catch(() => ({}));
         throw new Error(errJson.error?.message || errJson.error || `HTTP ${response.status}`);
     }
 
-    const donePayload = await readBrainstormSseStream(response, {
-        onDelta: (text) => {
-            if (state.brainstormPendingTurn) {
-                state.brainstormPendingTurn.streamText = (state.brainstormPendingTurn.streamText || '') + text;
-            }
-            updateCopilotStreamBody(state.brainstormPendingTurn?.streamText || '');
-        },
-        onTool: (json) => {
-            const p = state.brainstormPendingTurn;
-            if (p) {
-                if (json.phase === 'start') {
-                    const st = (p.streamText || '').trim();
-                    if (st) {
-                        p.blocks.push({ type: 'text', content: p.streamText });
-                        p.streamText = '';
-                    }
-                    let last = p.blocks[p.blocks.length - 1];
-                    if (!last || last.type !== 'tools') {
-                        last = { type: 'tools', calls: [] };
-                        p.blocks.push(last);
-                    }
-                    last.calls.push({
-                        name: json.name || 'unknown',
-                        callId: json.callId || '',
-                        arguments: json.arguments ?? '{}',
-                        result: '',
-                        state: 'running'
-                    });
-                } else if (json.phase === 'done') {
-                    const last = p.blocks[p.blocks.length - 1];
-                    if (last && last.type === 'tools') {
-                        const cid = json.callId;
-                        let call = cid
-                            ? last.calls.find((c) => c.callId === cid && c.state === 'running')
-                            : null;
-                        if (!call) {
-                            for (let i = last.calls.length - 1; i >= 0; i -= 1) {
-                                if (last.calls[i].state === 'running') {
-                                    call = last.calls[i];
-                                    break;
+    let donePayload;
+    try {
+        donePayload = await readBrainstormSseStream(response, {
+            onDelta: (text) => {
+                if (state.brainstormPendingTurn) {
+                    state.brainstormPendingTurn.streamText = (state.brainstormPendingTurn.streamText || '') + text;
+                }
+                updateCopilotStreamBody(state.brainstormPendingTurn?.streamText || '');
+            },
+            onTool: (json) => {
+                const p = state.brainstormPendingTurn;
+                if (p) {
+                    if (json.phase === 'start') {
+                        const st = (p.streamText || '').trim();
+                        if (st) {
+                            p.blocks.push({ type: 'text', content: p.streamText });
+                            p.streamText = '';
+                        }
+                        let last = p.blocks[p.blocks.length - 1];
+                        if (!last || last.type !== 'tools') {
+                            last = { type: 'tools', calls: [] };
+                            p.blocks.push(last);
+                        }
+                        last.calls.push({
+                            name: json.name || 'unknown',
+                            callId: json.callId || '',
+                            arguments: json.arguments ?? '{}',
+                            result: '',
+                            state: 'running'
+                        });
+                    } else if (json.phase === 'done') {
+                        const last = p.blocks[p.blocks.length - 1];
+                        if (last && last.type === 'tools') {
+                            const cid = json.callId;
+                            let call = cid
+                                ? last.calls.find((c) => c.callId === cid && c.state === 'running')
+                                : null;
+                            if (!call) {
+                                for (let i = last.calls.length - 1; i >= 0; i -= 1) {
+                                    if (last.calls[i].state === 'running') {
+                                        call = last.calls[i];
+                                        break;
+                                    }
                                 }
                             }
-                        }
-                        if (call) {
-                            call.state = 'done';
-                            const r = json.result != null ? String(json.result) : json.preview != null ? String(json.preview) : '';
-                            call.result = r;
+                            if (call) {
+                                call.state = 'done';
+                                const r =
+                                    json.result != null ? String(json.result) : json.preview != null ? String(json.preview) : '';
+                                call.result = r;
+                            }
                         }
                     }
                 }
+                if (json.phase === 'start') {
+                    console.debug('[Anvil Copilot] tool start', json.name, json.callId);
+                } else if (json.phase === 'done') {
+                    console.debug('[Anvil Copilot] tool done', json.name, json.callId);
+                }
+                scheduleCopilotThreadRefresh();
+            },
+            onPlanOptions: (json) => {
+                const p = state.brainstormPendingTurn;
+                if (!p || !json.proposalId || !Array.isArray(json.options)) return;
+                p.blocks.push({
+                    type: 'plan_options',
+                    proposalId: json.proposalId,
+                    prompt: String(json.prompt || ''),
+                    options: json.options,
+                    state: 'pending'
+                });
+                scheduleCopilotThreadRefresh();
+            },
+            onError: (msg) => {
+                console.warn('[Copilot stream]', msg);
             }
-            if (json.phase === 'start') {
-                console.debug('[Anvil Copilot] tool start', json.name, json.callId);
-            } else if (json.phase === 'done') {
-                console.debug('[Anvil Copilot] tool done', json.name, json.callId);
-            }
-            scheduleCopilotThreadRefresh();
-        },
-        onError: (msg) => {
-            console.warn('[Copilot stream]', msg);
+        });
+    } catch (readErr) {
+        if (readErr?.name === 'AbortError' || signal.aborted) {
+            state.copilotStreamAbortController = null;
+            return { aborted: true };
         }
-    });
+        state.copilotStreamAbortController = null;
+        throw readErr;
+    }
+
+    state.copilotStreamAbortController = null;
 
     if (!donePayload) {
+        if (signal.aborted) {
+            return { aborted: true };
+        }
         throw new Error('Stream ended without a result.');
     }
 
     try {
-        console.groupCollapsed('[Anvil AI → model] brainstorm/chat/stream');
+        console.groupCollapsed('[Anvil Copilot ← server] stream finished');
         console.log('model:', textConfig.model);
         console.log('assistantMessage:', donePayload.assistantMessage);
         console.groupEnd();
@@ -2007,7 +2409,8 @@ async function sendBrainstormStreamRequest(userMessage, attachmentUrls = []) {
         assistantMessage: donePayload.assistantMessage,
         session: donePayload.session,
         brainstormError: donePayload.brainstormError,
-        worldMutated
+        worldMutated,
+        aborted: false
     };
 }
 
@@ -2028,6 +2431,7 @@ async function clearBrainstormChat() {
         state.brainstormPendingTurn = null;
         state.brainstormAttachments = [];
         state.brainstormDraft = '';
+        state.copilotThreadStickToBottom = true;
         if (isBrainstormChatShellMounted()) {
             const inputEl = dom.brainstormPanel.querySelector('#brainstorm-input');
             if (inputEl) {
@@ -2048,6 +2452,53 @@ async function clearBrainstormChat() {
     }
 }
 
+const COPILOT_ROLLBACK_HOLD_MS = 520;
+
+async function performCopilotRollback(lastMessageIndex) {
+    if (!state.currentWorld || state.brainstormSending || state.brainstormTestRunning) return;
+    const session = getBrainstormSession();
+    const messages = Array.isArray(session.messages) ? session.messages : [];
+    if (lastMessageIndex < -1 || lastMessageIndex >= messages.length) return;
+
+    const confirmed = window.confirm(
+        'Revert to this message? All later chat will be removed and the world (entries, sections, fields) will be restored to match this point.'
+    );
+    if (!confirmed) return;
+
+    try {
+        const response = await fetch(
+            `/gpt/anvil/brainstorm/session/${encodeURIComponent(state.currentWorld.id)}/rollback`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ lastMessageIndex })
+            }
+        );
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(typeof data.error === 'string' ? data.error : `HTTP ${response.status}`);
+        }
+        setBrainstormSession(data.session);
+        state.currentWorld = ensureWorldShape(data.world);
+        upsertWorldSummary(state.currentWorld);
+        state.brainstormPendingTurn = null;
+        state.activeSection = state.currentWorld.sections[state.activeSection] ? state.activeSection : 'World';
+        ensureActiveEntry();
+        state.copilotThreadStickToBottom = true;
+        if (isBrainstormChatShellMounted()) {
+            flushCopilotThreadRefresh();
+            syncBrainstormHeaderMeta();
+        } else {
+            renderBrainstormPanel();
+        }
+        patchUiAfterCopilotWorldSync({ serverPersisted: true });
+        console.info('[Anvil Copilot] Rolled back to message index', lastMessageIndex);
+    } catch (error) {
+        console.error('Copilot rollback failed:', error);
+        alert(`Rollback failed: ${error.message}`);
+    }
+}
+
 async function runCopilotSelfTest() {
     if (!state.currentWorld || state.brainstormTestRunning || state.brainstormSending) return;
 
@@ -2059,7 +2510,7 @@ async function runCopilotSelfTest() {
 
     console.groupCollapsed('[Anvil Copilot] Scenario Self-Test (Amber Shell Complete World)');
     console.info(
-        'Using real API. Covers: chat, world fields, World/Regions/Factions/Characters entries, links & tags, entry edits, section moves, appendEntryImages, world name & summary finalize. Check console for step pass/fail.'
+        'Using real API. Covers: chat; multimodal user attachments; digest/get_entry; anvil_list_sections + anvil_list_section_entries; anvil_propose_directions (plan panel); apply ops: updateWorldFields, create/update/delete entry, setEntryLinks, setEntryTags, moveEntrySection, appendEntryImages, addSection, renameSection, deleteEntry, deleteSection (empty + relocateEntriesTo), updateEntryFields (tags/styleKeywords). Check console for step pass/fail.'
     );
 
     try {
@@ -2079,11 +2530,23 @@ async function runCopilotSelfTest() {
                 continue;
             }
 
+            if (typeof step.shouldRun === 'function' && !step.shouldRun()) {
+                console.info(`Step ${step.id} skipped (shouldRun returned false).`);
+                await new Promise((resolve) => setTimeout(resolve, 80));
+                continue;
+            }
+
             const promptText = typeof step.prompt === 'function' ? step.prompt() : step.prompt;
+            const attachUrls =
+                typeof step.attachmentUrls === 'function'
+                    ? step.attachmentUrls()
+                    : Array.isArray(step.attachmentUrls)
+                      ? step.attachmentUrls
+                      : [];
 
             state.brainstormPendingTurn = {
                 user: promptText,
-                attachmentUrls: [],
+                attachmentUrls: attachUrls,
                 blocks: [],
                 streamText: ''
             };
@@ -2097,16 +2560,27 @@ async function runCopilotSelfTest() {
 
             console.groupCollapsed(`Step ${step.id}`);
             console.log('Sent prompt:\n', promptText);
+            if (attachUrls.length) {
+                console.log('Attachment URLs:', attachUrls);
+            }
 
             let stepWorldMutated = false;
             try {
-                const result = await sendBrainstormStreamRequest(promptText, []);
+                const result = await sendBrainstormStreamRequest(promptText, attachUrls);
+                if (result.aborted) {
+                    console.warn('Step stopped (aborted).');
+                    break;
+                }
                 stepWorldMutated = Boolean(result.worldMutated);
                 const text = result.assistantMessage || '';
                 let passReply = step.checkReply ? step.checkReply(text) : true;
                 let passWorld = step.verifyWorld ? step.verifyWorld(state.currentWorld) : true;
-                const pass = passReply && passWorld;
+                let passSession = step.verifySession ? step.verifySession(getBrainstormSession()) : true;
+                const pass = passReply && passWorld && passSession;
 
+                if (step.verifySession && !passSession) {
+                    console.warn('Session assertion failed (e.g. missing plan_options block on last assistant turn).');
+                }
                 if (step.verifyWorld && !passWorld) {
                     console.warn('World data assertion failed (model may not have followed instructions, or previous step failed).', {
                         name: state.currentWorld?.name,
@@ -2127,6 +2601,14 @@ async function runCopilotSelfTest() {
                 state.brainstormSending = false;
                 state.brainstormPendingTurn = null;
                 console.groupEnd();
+            }
+
+            if (typeof step.afterStep === 'function') {
+                try {
+                    await step.afterStep();
+                } catch (afterErr) {
+                    console.warn(`Step ${step.id} afterStep error`, afterErr);
+                }
             }
 
             if (stepWorldMutated) {
@@ -2177,7 +2659,7 @@ function renderBrainstormPanel() {
                         <div class="brainstorm-heading-copy">
                             <strong>World Copilot</strong>
                             <span class="brainstorm-header-tagline">Select a world to use chat</span>
-                        </div>
+            </div>
                     </div>
                     <div class="brainstorm-meta">
                         <span class="brainstorm-toggle" aria-hidden="true"></span>
@@ -2224,12 +2706,13 @@ function renderBrainstormPanel() {
                                 <div class="copilot-dock-select-wrap">
                                     <select id="anvil-brainstorm-model" class="sidebar-select" data-select-placement="up" aria-label="Text model">${textModelOptionsHtml}</select>
                                 </div>
-                                <textarea id="brainstorm-input" class="copilot-textarea" rows="1" placeholder="Message… (${escapeAttribute(state.activeSection)} context)">${escapeHtml(state.brainstormDraft || '')}</textarea>
+                                <textarea id="brainstorm-input" class="copilot-textarea" rows="1" placeholder="Message… (${escapeAttribute(state.activeSection)}) · Enter send, Shift+Enter newline">${escapeHtml(state.brainstormDraft || '')}</textarea>
                             </div>
                             <div class="copilot-dock-actions">
                                 <input type="file" id="brainstorm-attach-input" class="copilot-attach-input" accept="image/*" multiple hidden>
                                 <button type="button" class="button-ghost copilot-attach-btn" data-brainstorm-attach-pick="true" title="Attach images" ${state.brainstormSending || state.brainstormTestRunning ? 'disabled' : ''}>Image</button>
                                 <button type="button" class="button-ghost copilot-clear-btn" data-copilot-clear-chat="true" title="Clear conversation" ${state.brainstormSending || state.brainstormTestRunning ? 'disabled' : ''}>Clear chat</button>
+                                <button type="button" class="button-ghost copilot-stop-btn" data-copilot-stop="true" title="Stop generation" ${state.brainstormSending ? '' : 'disabled'}>Stop</button>
                                 <button type="button" class="button-primary copilot-send-btn" data-brainstorm-send="true" ${state.brainstormSending ? 'disabled' : ''}>${state.brainstormSending ? '…' : 'Send'}</button>
                             </div>
                         </div>
@@ -2249,11 +2732,59 @@ function renderBrainstormPanel() {
     bindBrainstormPanelEvents();
     syncBrainstormExpandedUi();
     syncCopilotDockBusyState();
-    scrollCopilotThreadToBottom();
+    const threadEl = dom.brainstormPanel.querySelector('.copilot-thread');
+    if (threadEl) {
+        threadEl.onscroll = () => {
+            const gap = threadEl.scrollHeight - threadEl.scrollTop - threadEl.clientHeight;
+            state.copilotThreadStickToBottom = gap < 56;
+        };
+    }
+    if (state.copilotThreadStickToBottom) {
+        scrollCopilotThreadToBottom(true);
+    }
     requestAnimationFrame(() => syncBrainstormInputHeight(dom.brainstormPanel.querySelector('#brainstorm-input')));
 }
 
 function bindBrainstormPanelEvents() {
+    if (dom.brainstormPanel._copilotRollbackAbort) {
+        dom.brainstormPanel._copilotRollbackAbort.abort();
+    }
+    dom.brainstormPanel._copilotRollbackAbort = new AbortController();
+    const rollbackSignal = dom.brainstormPanel._copilotRollbackAbort.signal;
+
+    let rollbackHoldTimer = null;
+    let rollbackHoldIdx = null;
+    const cancelRollbackHold = () => {
+        clearTimeout(rollbackHoldTimer);
+        rollbackHoldTimer = null;
+        rollbackHoldIdx = null;
+    };
+
+    dom.brainstormPanel.addEventListener(
+        'pointerdown',
+        (event) => {
+            if (event.button !== 0) return;
+            const turn = event.target.closest('[data-copilot-rollback-index]');
+            if (!turn) return;
+            if (!event.ctrlKey && !event.metaKey) return;
+            const idx = Number(turn.getAttribute('data-copilot-rollback-index'));
+            if (Number.isNaN(idx)) return;
+            event.preventDefault();
+            rollbackHoldIdx = idx;
+            clearTimeout(rollbackHoldTimer);
+            rollbackHoldTimer = setTimeout(() => {
+                rollbackHoldTimer = null;
+                const i = rollbackHoldIdx;
+                rollbackHoldIdx = null;
+                if (i == null || state.brainstormSending || state.brainstormTestRunning) return;
+                void performCopilotRollback(i);
+            }, COPILOT_ROLLBACK_HOLD_MS);
+        },
+        { signal: rollbackSignal }
+    );
+    dom.brainstormPanel.addEventListener('pointerup', cancelRollbackHold, { signal: rollbackSignal });
+    dom.brainstormPanel.addEventListener('pointercancel', cancelRollbackHold, { signal: rollbackSignal });
+
     dom.brainstormPanel.addEventListener('click', (event) => {
         const toolToggle = event.target.closest('[data-tool-toggle="true"]');
         if (toolToggle) {
@@ -2262,6 +2793,42 @@ function bindBrainstormPanelEvents() {
                 toolCall.classList.toggle('is-open');
                 event.stopPropagation();
             }
+        }
+
+        const planPick = event.target.closest('[data-copilot-plan-pick="true"]');
+        if (planPick && !planPick.disabled && !state.brainstormSending && !state.brainstormTestRunning) {
+            const proposalId = planPick.getAttribute('data-plan-proposal-id');
+            const optionId = planPick.getAttribute('data-plan-option-id') || '';
+            const titleEl = planPick.querySelector('.copilot-plan-option-title');
+            const detailEl = planPick.querySelector('.copilot-plan-option-detail');
+            const title = titleEl ? titleEl.textContent.trim() : '';
+            const detail = detailEl ? detailEl.textContent.trim() : '';
+            if (proposalId && title) {
+                event.preventDefault();
+                const msg = detail ? `I choose (${optionId || 'option'}): ${title}\n${detail}` : `I choose (${optionId || 'option'}): ${title}`;
+                void submitCopilotPlanChoice(proposalId, title, detail, msg);
+            }
+            return;
+        }
+
+        if (event.target.closest('[data-copilot-plan-custom-send="true"]')) {
+            const btn = event.target.closest('[data-copilot-plan-custom-send="true"]');
+            const proposalId = btn?.getAttribute('data-plan-proposal-id');
+            const card = btn?.closest('[data-copilot-plan-card="true"]');
+            const ta = card?.querySelector('[data-copilot-plan-custom-input]');
+            const raw = ta ? String(ta.value || '').trim() : '';
+            if (!proposalId || !raw || state.brainstormSending || state.brainstormTestRunning) {
+                if (!raw) alert('Enter a custom direction first.');
+                return;
+            }
+            event.preventDefault();
+            void submitCopilotPlanChoice(proposalId, 'Custom', raw, raw);
+        }
+    });
+
+    dom.brainstormPanel.querySelector('[data-copilot-stop="true"]')?.addEventListener('click', () => {
+        if (state.copilotStreamAbortController) {
+            state.copilotStreamAbortController.abort();
         }
     });
 
@@ -2279,10 +2846,10 @@ function bindBrainstormPanelEvents() {
     });
 
     dom.brainstormPanel.querySelector('#brainstorm-input')?.addEventListener('keydown', (event) => {
-        if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-            event.preventDefault();
-            void sendBrainstormMessage();
-        }
+        if (event.key !== 'Enter' || event.shiftKey) return;
+        if (event.isComposing || event.keyCode === 229) return;
+        event.preventDefault();
+        void sendBrainstormMessage();
     });
 
     dom.brainstormPanel.querySelector('#anvil-brainstorm-model')?.addEventListener('change', (event) => {
@@ -2318,6 +2885,9 @@ function syncBrainstormExpandedUi() {
     dom.brainstormPanel.classList.toggle('is-expanded', state.brainstormExpanded);
     dom.brainstormPanel.classList.toggle('is-collapsed', !state.brainstormExpanded);
     dom.brainstormPanel.querySelector('[data-brainstorm-toggle="true"]')?.setAttribute('aria-expanded', state.brainstormExpanded ? 'true' : 'false');
+    if (state.brainstormExpanded) {
+        requestAnimationFrame(() => scrollCopilotThreadToBottom(true));
+    }
 }
 
 function renderImageTile(image, index = 0) {
@@ -2758,47 +3328,68 @@ async function addBrainstormAttachmentsFromFiles(fileList) {
     }
 }
 
-async function sendBrainstormMessage() {
-    if (!state.currentWorld || state.brainstormSending) return;
+/**
+ * @param {string} userMessage
+ * @param {string[]} attachmentUrls
+ * @param {{ restoreOnAbort?: boolean, backupAttachments?: { url: string, label?: string }[] }} [opts]
+ */
+async function sendCopilotUserTurn(userMessage, attachmentUrls = [], opts = {}) {
+    const restoreOnAbort = opts.restoreOnAbort !== false;
+    const backupAttachments = Array.isArray(opts.backupAttachments) ? opts.backupAttachments : null;
 
-    const userMessage = state.brainstormDraft.trim();
-    const pendingUrls = state.brainstormAttachments.map((a) => a.url).filter(Boolean);
-    if (!userMessage && pendingUrls.length === 0) {
-        alert('Enter a message or attach at least one image.');
-        return;
-    }
+    if (!state.currentWorld || state.brainstormSending) return { cancelled: true };
+
+    const trimmed = String(userMessage || '').trim();
+    const urls = Array.isArray(attachmentUrls) ? attachmentUrls.map((u) => String(u || '').trim()).filter(Boolean) : [];
+    if (!trimmed && !urls.length) return { cancelled: true };
 
     const textConfig = getBrainstormGenerationConfig();
     if (!textConfig.apiUrl || !textConfig.apiKey) {
         alert('Please configure your text model API in the settings.');
-        return;
+        return { cancelled: true };
     }
 
+    state.copilotThreadStickToBottom = true;
     state.brainstormSending = true;
     state.brainstormPendingTurn = {
-        user: userMessage,
-        attachmentUrls: pendingUrls,
+        user: trimmed,
+        attachmentUrls: urls,
         blocks: [],
         streamText: ''
     };
     state.brainstormExpanded = true;
-    state.brainstormDraft = '';
-    state.brainstormAttachments = [];
     if (!isBrainstormChatShellMounted()) {
         renderBrainstormPanel();
     } else {
-        const inputEl = dom.brainstormPanel.querySelector('#brainstorm-input');
-        if (inputEl) {
-            inputEl.value = '';
-            inputEl.style.height = '48px';
-        }
-        fillCopilotAttachPreviewSlot();
         syncCopilotDockBusyState();
         flushCopilotThreadRefresh();
     }
 
     try {
-        const streamResult = await sendBrainstormStreamRequest(userMessage, pendingUrls);
+        const streamResult = await sendBrainstormStreamRequest(trimmed, urls);
+        if (streamResult.aborted) {
+            state.brainstormPendingTurn = null;
+            if (restoreOnAbort) {
+                state.brainstormDraft = trimmed;
+                state.brainstormAttachments =
+                    backupAttachments && backupAttachments.length
+                        ? backupAttachments.map((a) => ({ url: a.url, label: a.label || '' }))
+                        : urls.map((url, i) => ({ url, label: `Image ${i + 1}` }));
+            }
+            flushCopilotThreadRefresh();
+            if (isBrainstormChatShellMounted()) {
+                const inputEl = dom.brainstormPanel.querySelector('#brainstorm-input');
+                if (inputEl && restoreOnAbort) {
+                    inputEl.value = state.brainstormDraft;
+                    syncBrainstormInputHeight(inputEl);
+                }
+                fillCopilotAttachPreviewSlot();
+                syncCopilotDockBusyState();
+            }
+            console.info('[Anvil Copilot] Generation stopped.');
+            return { aborted: true };
+        }
+
         state.brainstormExpanded = true;
         if (streamResult.worldMutated) {
             patchUiAfterCopilotWorldSync({ serverPersisted: true });
@@ -2810,11 +3401,13 @@ async function sendBrainstormMessage() {
         } else {
             renderBrainstormPanel();
         }
+        return streamResult;
     } catch (error) {
         console.error('Failed Anvil brainstorm chat:', error);
         alert(`Brainstorm request failed: ${error.message}`);
         state.brainstormPendingTurn = null;
         flushCopilotThreadRefresh();
+        throw error;
     } finally {
         state.brainstormSending = false;
         if (isBrainstormChatShellMounted()) {
@@ -2824,6 +3417,63 @@ async function sendBrainstormMessage() {
             renderBrainstormPanel();
         }
     }
+}
+
+async function submitCopilotPlanChoice(proposalId, choiceTitle, choiceDetail, userMessage) {
+    if (!state.currentWorld || state.brainstormSending || state.brainstormTestRunning) return;
+    try {
+        await patchCopilotPlanOptions([
+            {
+                proposalId,
+                state: 'chosen',
+                choiceTitle,
+                choiceDetail: choiceDetail || ''
+            }
+        ]);
+        if (isBrainstormChatShellMounted()) {
+            flushCopilotThreadRefresh();
+        }
+        await sendCopilotUserTurn(userMessage, [], { restoreOnAbort: false });
+    } catch (err) {
+        console.error('[Anvil Copilot] Plan choice failed:', err);
+        alert(`Could not apply plan choice: ${err.message}`);
+    }
+}
+
+async function sendBrainstormMessage() {
+    if (!state.currentWorld || state.brainstormSending) return;
+
+    const userMessage = state.brainstormDraft.trim();
+    const backupAttachments = state.brainstormAttachments.map((a) => ({ url: a.url, label: a.label || '' }));
+    const pendingUrls = backupAttachments.map((a) => a.url).filter(Boolean);
+    if (!userMessage && pendingUrls.length === 0) {
+        alert('Enter a message or attach at least one image.');
+        return;
+    }
+
+    const textConfig = getBrainstormGenerationConfig();
+    if (!textConfig.apiUrl || !textConfig.apiKey) {
+        alert('Please configure your text model API in the settings.');
+        return;
+    }
+
+    await dismissCopilotPendingPlanOptions();
+    if (isBrainstormChatShellMounted()) {
+        flushCopilotThreadRefresh();
+    }
+
+    state.brainstormDraft = '';
+    state.brainstormAttachments = [];
+    if (isBrainstormChatShellMounted()) {
+        const inputEl = dom.brainstormPanel.querySelector('#brainstorm-input');
+        if (inputEl) {
+            inputEl.value = '';
+            inputEl.style.height = '48px';
+        }
+        fillCopilotAttachPreviewSlot();
+    }
+
+    await sendCopilotUserTurn(userMessage, pendingUrls, { restoreOnAbort: true, backupAttachments });
 }
 
 async function runTextGeneration(action) {
@@ -2866,12 +3516,12 @@ async function runTextGeneration(action) {
     renderAll();
 
     const payload = {
-        apiUrl: textConfig.apiUrl,
-        apiKey: textConfig.apiKey,
-        model: textConfig.model,
-        world: state.currentWorld,
-        sectionName: state.activeSection,
-        entryId: entry.id,
+                apiUrl: textConfig.apiUrl,
+                apiKey: textConfig.apiKey,
+                model: textConfig.model,
+                world: state.currentWorld,
+                sectionName: state.activeSection,
+                entryId: entry.id,
         action: action === 'complete' ? 'rewrite' : action,
         userPrompt: action === 'complete'
             ? `${rawPrompt ? `${rawPrompt}\n\n` : ''}Return a JSON object with keys: summary, tags, styleKeywords, content. Fill all keys for this entry based on the world canon and linked context.`
@@ -2918,21 +3568,21 @@ async function runTextGeneration(action) {
         } else {
             state.aiResult = generatedText || 'No text was returned.';
 
-            if (action === 'align') {
-                renderEntryStudio();
-                return;
-            }
+        if (action === 'align') {
+            renderEntryStudio();
+            return;
+        }
 
             if (action === 'rewrite' || action === 'modify') {
-                entry.content = generatedText;
-            } else if (action === 'expand') {
-                entry.content = [entry.content, generatedText].filter(Boolean).join('\n\n');
-            } else {
-                entry.content = entry.content ? `${entry.content}\n\n${generatedText}` : generatedText;
-            }
+            entry.content = generatedText;
+        } else if (action === 'expand') {
+            entry.content = [entry.content, generatedText].filter(Boolean).join('\n\n');
+        } else {
+            entry.content = entry.content ? `${entry.content}\n\n${generatedText}` : generatedText;
+        }
 
-            if (!entry.summary) {
-                entry.summary = deriveSummaryFromText(generatedText);
+        if (!entry.summary) {
+            entry.summary = deriveSummaryFromText(generatedText);
             }
         }
 
@@ -2985,19 +3635,19 @@ async function runImageGeneration(action) {
     renderAll();
 
     const payload = {
-        apiUrl: imageConfig.apiUrl,
-        apiKey: imageConfig.apiKey,
-        model: imageConfig.model,
-        size: imageConfig.size,
-        world: state.currentWorld,
-        sectionName: state.activeSection,
-        entryId: entry.id,
-        action,
-        userPrompt,
-        referenceImages: [
-            ...(entry.images || []).map((image) => image.url),
-            ...(state.currentWorld.styleAnchors || []).map((anchor) => anchor.url)
-        ]
+                apiUrl: imageConfig.apiUrl,
+                apiKey: imageConfig.apiKey,
+                model: imageConfig.model,
+                size: imageConfig.size,
+                world: state.currentWorld,
+                sectionName: state.activeSection,
+                entryId: entry.id,
+                action,
+                userPrompt,
+                referenceImages: [
+                    ...(entry.images || []).map((image) => image.url),
+                    ...(state.currentWorld.styleAnchors || []).map((anchor) => anchor.url)
+                ]
     };
 
     try {
