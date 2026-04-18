@@ -13,6 +13,7 @@ textarea.addEventListener('keydown', function(event) {
     }
     if (event.key === 'Enter') {
         if (event.ctrlKey || event.shiftKey) {
+            event.preventDefault();
             const start = textarea.selectionStart;
             const end = textarea.selectionEnd;
             textarea.value = textarea.value.substring(0, start) + '\n' + textarea.value.substring(end);

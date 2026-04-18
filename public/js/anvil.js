@@ -1,7 +1,9 @@
 import { config } from './configEvent.js';
+import { fetchAnvilWorld, fetchAnvilWorldsList } from './anvil-world-client.js';
 
 const SECTION_ORDER = [
     'World',
+    'Timeline',
     'Regions',
     'Factions',
     'Characters',
@@ -73,7 +75,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     bindStaticEvents();
     initCustomSelects();
     loadSidebarSettings();
-    await loadWorlds();
+    await loadWorldsFromUrlOrDefault();
 });
 
 function cacheDom() {
@@ -262,6 +264,9 @@ function createEmptyEntry(sectionName, title = `New ${sectionName} Entry`) {
         references: [],
         tags: [],
         links: [],
+        parentId: null,
+        timelineKind: 'none',
+        timelineYear: null,
         aiContextSummary: '',
         generationPresets: {
             textPrompt: '',
@@ -285,6 +290,7 @@ function createEmptyWorld(name) {
         styleAnchors: [],
         sections: {
             World: [worldOverview],
+            Timeline: [],
             Regions: [],
             Factions: [],
             Characters: [],
@@ -310,19 +316,33 @@ function ensureWorldShape(world) {
     const sections = {};
     getWorldSectionNamesInOrder(world).forEach((sectionName) => {
         sections[sectionName] = Array.isArray(world.sections?.[sectionName])
-            ? world.sections[sectionName].map((entry) => ({
-                images: [],
-                references: [],
-                tags: [],
-                links: [],
-                styleKeywords: [],
-                generationPresets: {
-                    textPrompt: entry?.generationPresets?.textPrompt || entry?.generationPresets?.lastPrompt || '',
-                    imagePrompt: entry?.generationPresets?.imagePrompt || ''
-                },
-                ...entry,
-                section: entry.section || sectionName
-            }))
+            ? world.sections[sectionName].map((entry) => {
+                  const merged = {
+                      images: [],
+                      references: [],
+                      tags: [],
+                      links: [],
+                      styleKeywords: [],
+                      generationPresets: {
+                          textPrompt: entry?.generationPresets?.textPrompt || entry?.generationPresets?.lastPrompt || '',
+                          imagePrompt: entry?.generationPresets?.imagePrompt || ''
+                      },
+                      ...entry,
+                      section: entry.section || sectionName
+                  };
+                  merged.parentId =
+                      merged.parentId != null && String(merged.parentId).trim()
+                          ? String(merged.parentId).trim()
+                          : null;
+                  merged.timelineKind = merged.timelineKind === 'year' ? 'year' : 'none';
+                  merged.timelineYear =
+                      merged.timelineKind === 'year' &&
+                      merged.timelineYear != null &&
+                      Number.isFinite(Number(merged.timelineYear))
+                          ? Number(merged.timelineYear)
+                          : null;
+                  return merged;
+              })
             : [];
     });
 
@@ -414,7 +434,9 @@ async function dismissCopilotPendingPlanOptions() {
 
 async function patchCopilotPlanOptions(actions) {
     const worldId = state.currentWorld?.id;
-    if (!worldId || !actions?.length) return false;
+    if (!worldId || !actions?.length) {
+        throw new Error(!worldId ? 'No world selected.' : 'No plan actions to apply.');
+    }
     const response = await fetch(
         `/gpt/anvil/brainstorm/session/${encodeURIComponent(worldId)}/plan-options`,
         {
@@ -427,7 +449,11 @@ async function patchCopilotPlanOptions(actions) {
     if (!response.ok) {
         throw new Error(typeof data.error === 'string' ? data.error : `HTTP ${response.status}`);
     }
-    if (data.session) setBrainstormSession(data.session);
+    if (data.session) {
+        setBrainstormSession(data.session);
+    } else {
+        console.warn('[Anvil Copilot] plan-options: response OK but missing session payload');
+    }
     return true;
 }
 
@@ -453,18 +479,29 @@ async function loadBrainstormSession(worldId) {
     }
 }
 
-async function loadWorlds() {
+async function loadWorldsFromUrlOrDefault() {
+    const params = new URLSearchParams(window.location.search);
+    const worldParam = params.get('world');
+    const entryParam = params.get('entry');
+
     try {
-        const response = await fetch('/gpt/anvil/worlds');
+        const { response, data } = await fetchAnvilWorldsList();
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        state.worlds = await response.json();
+        state.worlds = Array.isArray(data) ? data : [];
 
         if (state.worlds.length > 0) {
-            const preferredWorldId = state.currentWorld?.id || state.worlds[0].id;
+            const preferredWorldId =
+                worldParam && state.worlds.some((w) => w.id === worldParam)
+                    ? worldParam
+                    : (state.currentWorld?.id || state.worlds[0].id);
             await selectWorld(preferredWorldId);
+            if (entryParam && selectEntryById(entryParam)) {
+                renderAll();
+                document.querySelector('.entry-studio-main')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
             return;
         }
 
@@ -481,12 +518,12 @@ async function loadWorlds() {
 
 async function selectWorld(worldId) {
     try {
-        const response = await fetch(`/gpt/anvil/world/${encodeURIComponent(worldId)}`);
+        const { response, data } = await fetchAnvilWorld(worldId);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        state.currentWorld = ensureWorldShape(await response.json());
+        state.currentWorld = ensureWorldShape(data);
         await loadBrainstormSession(worldId);
         state.activeSection = state.currentWorld.sections[state.activeSection] ? state.activeSection : 'World';
         state.worldHeroExpanded = false;
@@ -566,6 +603,7 @@ async function deleteCurrentWorld() {
             return;
         }
 
+        updateTimelineSidebarLink();
         renderAll();
     } catch (error) {
         console.error('Failed to delete Anvil world:', error);
@@ -599,6 +637,106 @@ function setActiveSection(sectionName) {
 
 function getSelectedEntry() {
     return getSectionEntries().find((entry) => entry.id === state.activeEntryId) || null;
+}
+
+function flattenWorldEntries(world) {
+    if (!world?.sections) return [];
+    return getWorldSectionNamesInOrder(world).flatMap((sectionName) =>
+        (world.sections[sectionName] || []).map((e) => ({ ...e, section: sectionName }))
+    );
+}
+
+function findEntryByIdInWorld(world, entryId) {
+    const id = String(entryId || '').trim();
+    if (!id) return null;
+    return flattenWorldEntries(world).find((e) => String(e.id) === id) || null;
+}
+
+function selectEntryById(entryId) {
+    const id = String(entryId || '').trim();
+    if (!state.currentWorld || !id) return false;
+    const found = findEntryByIdInWorld(state.currentWorld, id);
+    if (!found) return false;
+    state.activeSection = found.section || getWorldSectionNamesInOrder(state.currentWorld)[0];
+    state.activeEntryId = found.id;
+    return true;
+}
+
+function getDescendantEntryIds(world, rootId) {
+    const root = String(rootId || '');
+    const byParent = new Map();
+    for (const e of flattenWorldEntries(world)) {
+        const p = e.parentId != null && String(e.parentId).trim() ? String(e.parentId).trim() : '';
+        if (!p) continue;
+        if (!byParent.has(p)) byParent.set(p, []);
+        byParent.get(p).push(String(e.id));
+    }
+    const out = new Set();
+    const stack = [...(byParent.get(root) || [])];
+    while (stack.length) {
+        const cur = String(stack.pop());
+        if (out.has(cur)) continue;
+        out.add(cur);
+        const kids = byParent.get(cur);
+        if (kids) stack.push(...kids);
+    }
+    return out;
+}
+
+function getChildEntriesForEntry(entry, world) {
+    const id = String(entry.id);
+    return flattenWorldEntries(world).filter((e) => e.parentId != null && String(e.parentId) === id);
+}
+
+function updateTimelineSidebarLink() {
+    const a = document.getElementById('anvil-timeline-link');
+    if (!a) return;
+    const wid = state.currentWorld?.id;
+    if (wid) {
+        a.href = `anvil-timeline.html?world=${encodeURIComponent(wid)}`;
+        a.classList.remove('is-disabled');
+        a.removeAttribute('aria-disabled');
+    } else {
+        a.href = 'anvil-timeline.html';
+        a.classList.add('is-disabled');
+        a.setAttribute('aria-disabled', 'true');
+    }
+}
+
+function buildEntryParentSelectOptions(entry, world) {
+    const selfId = String(entry.id);
+    const forbidden = new Set([selfId, ...getDescendantEntryIds(world, selfId)]);
+    const all = flattenWorldEntries(world).filter((e) => !forbidden.has(String(e.id)));
+    const years = all
+        .filter((e) => e.timelineKind === 'year')
+        .sort((a, b) => (Number(a.timelineYear) || 0) - (Number(b.timelineYear) || 0));
+    const rest = all
+        .filter((e) => e.timelineKind !== 'year')
+        .sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')));
+    const cur = entry.parentId != null && String(entry.parentId).trim() ? String(entry.parentId).trim() : '';
+    let html = '<option value="">No parent</option>';
+    if (years.length) {
+        html += '<optgroup label="Year anchors">';
+        for (const y of years) {
+            const sel = cur === String(y.id) ? ' selected' : '';
+            html += `<option value="${escapeAttribute(y.id)}"${sel}>${escapeHtml(`[${y.timelineYear}] ${y.title || 'Year'}`)}</option>`;
+        }
+        html += '</optgroup>';
+    }
+    if (rest.length) {
+        html += '<optgroup label="Entries">';
+        for (const r of rest) {
+            const sel = cur === String(r.id) ? ' selected' : '';
+            html += `<option value="${escapeAttribute(r.id)}"${sel}>${escapeHtml(`${r.title || 'Untitled'} (${r.section})`)}</option>`;
+        }
+        html += '</optgroup>';
+    }
+    return html;
+}
+
+function entryLinkSetHas(links, linkId) {
+    const id = String(linkId || '');
+    return (Array.isArray(links) ? links : []).some((x) => String(x) === id);
 }
 
 function createEntry(sectionName = state.activeSection) {
@@ -636,7 +774,15 @@ function deleteSelectedEntry() {
     const confirmed = window.confirm(`Delete entry "${entry.title}"?`);
     if (!confirmed) return;
 
-    state.currentWorld.sections[state.activeSection] = getSectionEntries().filter((candidate) => candidate.id !== entry.id);
+    const removedId = entry.id;
+    state.currentWorld.sections[state.activeSection] = getSectionEntries().filter((candidate) => candidate.id !== removedId);
+    for (const sectionName of getWorldSectionNamesInOrder(state.currentWorld)) {
+        for (const e of state.currentWorld.sections[sectionName] || []) {
+            if (e.parentId != null && String(e.parentId) === String(removedId)) {
+                e.parentId = null;
+            }
+        }
+    }
     removeAnchorsForDeletedEntry(entry);
     state.activeEntryId = null;
     ensureActiveEntry();
@@ -764,7 +910,7 @@ function queueSaveCurrentWorld() {
     // Do not renderAll() here — it rebuilds studio/world hero inputs and kills focus + IME composition.
     renderWorldList();
     renderSectionList();
-    renderEntryBoard();
+    renderEntryBoard({ suppressCardIntro: true });
     renderSectionBoardPeek(getFilteredEntries());
 
     clearTimeout(state.saveTimer);
@@ -854,6 +1000,7 @@ async function saveCurrentWorld() {
 }
 
 function renderAll() {
+    updateTimelineSidebarLink();
     renderWorldList();
     renderSectionList();
     renderWorldHero();
@@ -1201,7 +1348,11 @@ function getFilteredEntries() {
     });
 }
 
-function renderEntryBoard() {
+/**
+ * @param {{ suppressCardIntro?: boolean }} [options] — when true (e.g. autosave queue), skip staggered card mount animation to avoid flicker.
+ */
+function renderEntryBoard(options = {}) {
+    const suppressCardIntro = Boolean(options.suppressCardIntro);
     if (!dom.entryBoard || !dom.boardTitle) return;
 
     dom.boardTitle.textContent = state.currentWorld ? state.activeSection : 'Anvil';
@@ -1237,9 +1388,10 @@ function renderEntryBoard() {
 
     dom.entryBoard.innerHTML = entries.map((entry, index) => {
         const cover = getEntryPrimaryImage(entry);
-        const delay = Math.min(index * 0.05, 0.4);
+        const delay = suppressCardIntro ? 0 : Math.min(index * 0.05, 0.4);
+        const introClass = suppressCardIntro ? ' entry-card--no-intro' : '';
         return `
-            <article class="entry-card ${entry.id === state.activeEntryId ? 'active' : ''}" data-entry-id="${entry.id}" style="animation-delay: ${delay}s">
+            <article class="entry-card${introClass} ${entry.id === state.activeEntryId ? 'active' : ''}" data-entry-id="${entry.id}" style="animation-delay: ${delay}s">
                 ${cover ? `<img class="entry-card-cover" src="${escapeAttribute(cover)}" alt="${escapeAttribute(entry.title)}">` : '<div class="entry-card-cover entry-card-cover-empty"></div>'}
                 <div class="entry-card-header">
                     <span class="status-badge">${escapeHtml(entry.status || 'Seed')}</span>
@@ -1259,16 +1411,31 @@ function renderEntryBoard() {
             state.aiResult = '';
             state.aiContextSummary = null;
             syncEntryBoardSelection();
-            renderEntryStudio();
+            renderEntryStudio({ instant: true });
             syncBrainstormHeaderMeta();
         });
     });
 }
 
-function renderEntryStudio() {
+/** After link toggles, avoid full studio re-render — only sync chip highlights. */
+function syncLinkChipActiveClasses() {
+    const live = getSelectedEntry();
+    if (!dom.studioContent || !live) return;
+    dom.studioContent.querySelectorAll('.link-chip[data-link-id]').forEach((el) => {
+        const id = String(el.dataset.linkId || '');
+        el.classList.toggle('active', entryLinkSetHas(live.links, id));
+    });
+}
+
+/**
+ * @param {{ instant?: boolean }} [options] — pass `instant: true` only for high-frequency updates (e.g. switching selected entry) to skip mount fade and avoid flicker. Default keeps entrance animations.
+ */
+function renderEntryStudio(options = {}) {
+    const instant = options.instant === true;
     if (!dom.studioContent || !dom.studioTitle) return;
 
     if (!state.currentWorld) {
+        dom.studioContent.classList.remove('entry-studio-content--no-mount-anim');
         dom.studioTitle.textContent = 'Select a world';
         dom.studioContent.innerHTML = `
             <div class="empty-state">
@@ -1281,6 +1448,7 @@ function renderEntryStudio() {
 
     const entry = getSelectedEntry();
     if (!entry) {
+        dom.studioContent.classList.remove('entry-studio-content--no-mount-anim');
         dom.studioTitle.textContent = 'No entry selected';
         dom.studioContent.innerHTML = `
             <div class="empty-state">
@@ -1295,11 +1463,30 @@ function renderEntryStudio() {
         return;
     }
 
+    dom.studioContent.classList.toggle('entry-studio-content--no-mount-anim', instant);
+
     dom.studioTitle.textContent = entry.title || 'Untitled Entry';
 
     const allOtherEntries = getWorldSectionNamesInOrder(state.currentWorld).flatMap(
         (sectionName) => state.currentWorld.sections[sectionName] || []
     ).filter((candidate) => candidate.id !== entry.id);
+
+    const childEntries = getChildEntriesForEntry(entry, state.currentWorld);
+    const structuralIds = new Set();
+    if (entry.parentId != null && String(entry.parentId).trim()) {
+        structuralIds.add(String(entry.parentId).trim());
+    }
+    childEntries.forEach((c) => structuralIds.add(String(c.id)));
+    const linkToggleCandidates = allOtherEntries.filter((c) => !structuralIds.has(String(c.id)));
+    const parentSelectOptions = buildEntryParentSelectOptions(entry, state.currentWorld);
+    const childrenMarkup = childEntries.length
+        ? childEntries
+              .map(
+                  (c) =>
+                      `<button type="button" class="link-chip link-chip--child" data-navigate-entry-id="${escapeAttribute(c.id)}">${escapeHtml(c.title || 'Untitled')}</button>`
+              )
+              .join('')
+        : '<div class="muted">No child entries.</div>';
 
     const imagesMarkup = entry.images?.length
         ? entry.images.map((image, index) => renderImageTile(image, index)).join('')
@@ -1349,15 +1536,21 @@ function renderEntryStudio() {
                 <div class="ai-result-panel">${escapeHtml(state.aiResult || 'AI text output will appear here. “Complete Entry” will fill summary, tags, style keywords and body together.')}</div>
             </div>
 
+            <div class="eyebrow">Parent (timeline or entry)</div>
+            <select id="entry-parent-select" class="sidebar-select entry-parent-select" aria-label="Parent entry">${parentSelectOptions}</select>
+
+            <div class="eyebrow">Children</div>
+            <div class="link-chip-row link-chip-row--children">${childrenMarkup}</div>
+
             <div class="eyebrow">Linked Entries</div>
             <div class="link-chip-row">
-                ${allOtherEntries.length > 0
-                    ? allOtherEntries.map((candidate) => `
-                        <div class="link-chip ${entry.links?.includes(candidate.id) ? 'active' : ''}" data-link-id="${candidate.id}">
+                ${linkToggleCandidates.length > 0
+                    ? linkToggleCandidates.map((candidate) => `
+                        <div class="link-chip ${entryLinkSetHas(entry.links, candidate.id) ? 'active' : ''}" data-link-id="${candidate.id}">
                             ${escapeHtml(candidate.title)}
                         </div>
                     `).join('')
-                    : '<div class="muted">No other entries yet.</div>'}
+                    : '<div class="muted">No other entries to link.</div>'}
             </div>
 
             <div class="hero-actions" style="margin-top: 14px;">
@@ -1395,7 +1588,7 @@ function renderEntryStudio() {
         </section>
     `;
 
-    bindEntryStudioEvents(entry);
+    bindEntryStudioEvents();
 }
 
 let copilotThreadRefreshTimer = null;
@@ -1424,6 +1617,7 @@ function syncCopilotDockBusyState() {
     if (!dom.brainstormPanel) return;
     const sending = state.brainstormSending;
     const testing = state.brainstormTestRunning;
+    dom.brainstormPanel.classList.toggle('is-copilot-sending', sending);
     dom.brainstormPanel.querySelector('[data-brainstorm-send="true"]')?.toggleAttribute('disabled', sending);
     const sendBtn = dom.brainstormPanel.querySelector('[data-brainstorm-send="true"]');
     if (sendBtn) sendBtn.textContent = sending ? '…' : 'Send';
@@ -1493,7 +1687,7 @@ function patchUiAfterCopilotWorldSync({ serverPersisted = false } = {}) {
     renderSectionList();
     renderWorldHero();
     renderEntryBoard();
-    renderEntryStudio();
+    renderEntryStudio({ instant: true });
     renderSectionBoardPeek(getFilteredEntries());
     if (!serverPersisted) {
         state.currentWorld.updatedAt = Date.now();
@@ -1588,6 +1782,40 @@ function renderCopilotToolCallRow(call) {
         </div>`;
 }
 
+function showCopilotPlanConfirmRow(card) {
+    if (!card) return;
+    const row = card.querySelector('[data-copilot-plan-confirm-row]');
+    const summary = card.querySelector('[data-copilot-plan-confirm-summary]');
+    const btn = card.querySelector('[data-copilot-plan-confirm]');
+    if (!row || !summary || !btn) return;
+    const isCustom = card.dataset.planSelCustom === '1';
+    if (isCustom) {
+        summary.textContent = 'Ready to continue with your custom direction (not sent until you press Continue).';
+    } else {
+        const t = card.dataset.planSelTitle || '';
+        summary.textContent = t ? `Ready to continue with: ${t}` : 'Pick a direction above, then press Continue.';
+    }
+    row.hidden = false;
+    btn.disabled = false;
+}
+
+function clearCopilotPlanSelectionUi(card) {
+    if (!card) return;
+    card.querySelectorAll('.copilot-plan-option').forEach((b) => b.classList.remove('is-selected'));
+    const customBox = card.querySelector('.copilot-plan-custom');
+    customBox?.classList.remove('is-selected');
+    delete card.dataset.planSelCustom;
+    delete card.dataset.planSelOptionId;
+    delete card.dataset.planSelTitle;
+    delete card.dataset.planSelDetail;
+    const row = card.querySelector('[data-copilot-plan-confirm-row]');
+    const btn = card.querySelector('[data-copilot-plan-confirm]');
+    if (row) row.hidden = true;
+    if (btn) btn.disabled = true;
+    const summary = card.querySelector('[data-copilot-plan-confirm-summary]');
+    if (summary) summary.textContent = '';
+}
+
 function renderCopilotPlanOptionsBlock(block) {
     if (!block || block.type !== 'plan_options') return '';
     const proposalId = escapeAttribute(block.proposalId || '');
@@ -1601,14 +1829,24 @@ function renderCopilotPlanOptionsBlock(block) {
             const title = escapeHtml(o.title || '');
             const det = o.detail ? escapeHtml(o.detail) : '';
             const dis = st !== 'pending' ? ' disabled' : '';
-            return `<button type="button" class="copilot-plan-option"${dis} data-copilot-plan-pick="true" data-plan-proposal-id="${proposalId}" data-plan-option-id="${oid}"><span class="copilot-plan-option-title">${title}</span>${
+            return `<button type="button" class="copilot-plan-option"${dis} data-copilot-plan-select="true" data-plan-proposal-id="${proposalId}" data-plan-option-id="${oid}"><span class="copilot-plan-option-title">${title}</span>${
                 det ? `<span class="copilot-plan-option-detail">${det}</span>` : ''
             }</button>`;
         })
         .join('');
     const custom =
         st === 'pending'
-            ? `<div class="copilot-plan-custom"><div class="muted copilot-plan-custom-label">Custom direction</div><textarea class="copilot-plan-custom-input" rows="2" placeholder="Type your own direction…" data-copilot-plan-custom-input data-plan-proposal-id="${proposalId}"></textarea><button type="button" class="button-secondary copilot-plan-custom-send" data-copilot-plan-custom-send="true" data-plan-proposal-id="${proposalId}">Send custom</button></div>`
+            ? `<div class="copilot-plan-custom"><div class="muted copilot-plan-custom-label">Custom direction</div><textarea class="copilot-plan-custom-input" rows="2" placeholder="Describe your own direction…" data-copilot-plan-custom-input data-plan-proposal-id="${proposalId}"></textarea><button type="button" class="button-secondary copilot-plan-use-custom" data-copilot-plan-use-custom="true" data-plan-proposal-id="${proposalId}">Use custom text</button></div>`
+            : '';
+    const confirmRow =
+        st === 'pending'
+            ? `<div class="copilot-plan-confirm-row" hidden data-copilot-plan-confirm-row>
+                <div class="copilot-plan-confirm-summary muted" data-copilot-plan-confirm-summary></div>
+                <div class="copilot-plan-confirm-actions">
+                    <button type="button" class="button-primary copilot-plan-confirm-btn" data-copilot-plan-confirm="true" disabled>Continue</button>
+                    <button type="button" class="button-ghost copilot-plan-clear-btn" data-copilot-plan-cancel-select="true">Clear</button>
+                </div>
+            </div>`
             : '';
     let status = '';
     if (st === 'chosen') {
@@ -1618,7 +1856,7 @@ function renderCopilotPlanOptionsBlock(block) {
     } else if (st === 'dismissed') {
         status = '<div class="copilot-plan-status muted">Skipped — you continued in the composer</div>';
     }
-    return `<div class="copilot-plan-card copilot-plan-card--${escapeAttribute(st)}" data-copilot-plan-card="true" data-plan-proposal-id="${proposalId}">${promptHtml}<div class="copilot-plan-options">${opts}</div>${custom}${status}</div>`;
+    return `<div class="copilot-plan-card copilot-plan-card--${escapeAttribute(st)}" data-copilot-plan-card="true" data-plan-proposal-id="${proposalId}">${promptHtml}<div class="copilot-plan-options">${opts}</div>${custom}${confirmRow}${status}</div>`;
 }
 
 function renderCopilotBlocksHtml(blocks) {
@@ -1719,7 +1957,7 @@ function renderCopilotMessageListHtml(messages, pendingTurn) {
             <div class="copilot-thread-empty">
                 <div class="copilot-welcome-icon" aria-hidden="true"></div>
                 <h3 class="copilot-welcome-title">World Copilot</h3>
-                <p class="copilot-welcome-text">Ask anything about this world. Replies stream in real time; tools read and update your canon when needed. The model can offer direction picks (like a plan); choose in the card, use Custom, or just send a new message to skip. Use Stop to cancel generation. Ctrl+hold (⌘+hold on Mac) a past message to revert chat and the world to that point.</p>
+                <p class="copilot-welcome-text">Ask anything about this world. Replies stream in real time; tools read and update your canon when needed. When the model offers direction picks, click an option (or prepare custom text), then press Continue — nothing is sent to the model until Continue. Or type a new message in the composer to skip the plan. Use Stop to cancel generation. Ctrl+hold (⌘+hold on Mac) a past message to revert chat and the world to that point.</p>
             </div>`;
     }
 
@@ -2219,6 +2457,54 @@ const COPILOT_SCENARIO_STEPS = [
             if (Array.isArray(bin) && bin.length > 0) return false;
             const w = Array.isArray(world?.sections?.World) ? world.sections.World : [];
             return w.some((e) => String(e.title || '').trim() === 'QA Relocate Canary');
+        }
+    },
+    {
+        id: '18_timeline_year_anchors',
+        prompt: [
+            COPILOT_SCENARIO_NO_DUP_RULE,
+            'Automated QA for createTimelineYearEntry (year anchors on the Timeline).',
+            '1) anvil_get_world_digest.',
+            '2) For each calendar year 1088 and 1240: if the world already has ANY entry with timelineKind "year" and timelineYear exactly that number, do NOT create a duplicate; otherwise call anvil_apply_world_operations with createTimelineYearEntry:',
+            '   year = that number; section "Timeline"; title MUST be exactly "QA Year 1088" or "QA Year 1240" respectively;',
+            '   summary: one sentence mentioning Amber Shell chronology; tags at least ["timeline","QA","year"]; styleKeywords at least ["chronicle scroll","amber ink","salt margin"].',
+            '3) If an anchor exists but title/summary/tags/style are wrong, use updateEntryFields only (do not create a second year row for the same timelineYear).',
+            'The last line MUST be exactly: TIMELINE_YEARS_OK'
+        ].join('\n'),
+        checkReply: (text) => /TIMELINE_YEARS_OK\s*$/m.test(String(text || '')),
+        verifyWorld: (world) => {
+            const all = flattenWorldEntries(world);
+            const y1088 = all.find((e) => e.timelineKind === 'year' && Number(e.timelineYear) === 1088);
+            const y1240 = all.find((e) => e.timelineKind === 'year' && Number(e.timelineYear) === 1240);
+            if (!y1088 || !y1240) return false;
+            const t1088 = String(y1088.title || '').trim() === 'QA Year 1088';
+            const t1240 = String(y1240.title || '').trim() === 'QA Year 1240';
+            return t1088 && t1240;
+        }
+    },
+    {
+        id: '19_set_entry_parent',
+        prompt: [
+            COPILOT_SCENARIO_NO_DUP_RULE,
+            'Automated QA for setEntryParent (timeline tree).',
+            '1) anvil_get_world_digest.',
+            '2) Find entry id for Regions entry titled exactly "Salt Frost Strait", and entry id for the Timeline year anchor with timelineYear 1088 (from step 18).',
+            '3) anvil_apply_world_operations: setEntryParent with entryId = Salt Frost Strait id, parentId = that 1088 year anchor id.',
+            '4) Find Characters entry titled exactly "Ellie Salt-Lamp"; setEntryParent with entryId = Ellie id, parentId = the SAME 1088 year anchor id.',
+            'The last line MUST be exactly: PARENT_LINK_OK'
+        ].join('\n'),
+        checkReply: (text) => /PARENT_LINK_OK\s*$/m.test(String(text || '')),
+        verifyWorld: (world) => {
+            const all = flattenWorldEntries(world);
+            const year1088 = all.find((e) => e.timelineKind === 'year' && Number(e.timelineYear) === 1088);
+            if (!year1088?.id) return false;
+            const pid = String(year1088.id);
+            const salt = all.find((e) => String(e.title || '').trim() === 'Salt Frost Strait');
+            const ellie = all.find((e) => String(e.title || '').trim() === 'Ellie Salt-Lamp');
+            if (!salt || !ellie) return false;
+            const sp = salt.parentId != null && String(salt.parentId).trim();
+            const ep = ellie.parentId != null && String(ellie.parentId).trim();
+            return sp === pid && ep === pid;
         }
     }
 ];
@@ -2795,34 +3081,85 @@ function bindBrainstormPanelEvents() {
             }
         }
 
-        const planPick = event.target.closest('[data-copilot-plan-pick="true"]');
-        if (planPick && !planPick.disabled && !state.brainstormSending && !state.brainstormTestRunning) {
-            const proposalId = planPick.getAttribute('data-plan-proposal-id');
-            const optionId = planPick.getAttribute('data-plan-option-id') || '';
-            const titleEl = planPick.querySelector('.copilot-plan-option-title');
-            const detailEl = planPick.querySelector('.copilot-plan-option-detail');
+        const planSelect = event.target.closest('[data-copilot-plan-select="true"]');
+        if (planSelect && !planSelect.disabled && !state.brainstormSending && !state.brainstormTestRunning) {
+            const card = planSelect.closest('[data-copilot-plan-card="true"]');
+            const proposalId = planSelect.getAttribute('data-plan-proposal-id');
+            const optionId = planSelect.getAttribute('data-plan-option-id') || '';
+            const titleEl = planSelect.querySelector('.copilot-plan-option-title');
+            const detailEl = planSelect.querySelector('.copilot-plan-option-detail');
             const title = titleEl ? titleEl.textContent.trim() : '';
             const detail = detailEl ? detailEl.textContent.trim() : '';
-            if (proposalId && title) {
+            if (proposalId && title && card) {
                 event.preventDefault();
-                const msg = detail ? `I choose (${optionId || 'option'}): ${title}\n${detail}` : `I choose (${optionId || 'option'}): ${title}`;
-                void submitCopilotPlanChoice(proposalId, title, detail, msg);
+                card.querySelectorAll('.copilot-plan-option').forEach((b) => b.classList.remove('is-selected'));
+                planSelect.classList.add('is-selected');
+                card.querySelector('.copilot-plan-custom')?.classList.remove('is-selected');
+                card.dataset.planSelCustom = '0';
+                card.dataset.planSelOptionId = optionId;
+                card.dataset.planSelTitle = title;
+                card.dataset.planSelDetail = detail;
+                showCopilotPlanConfirmRow(card);
             }
             return;
         }
 
-        if (event.target.closest('[data-copilot-plan-custom-send="true"]')) {
-            const btn = event.target.closest('[data-copilot-plan-custom-send="true"]');
-            const proposalId = btn?.getAttribute('data-plan-proposal-id');
-            const card = btn?.closest('[data-copilot-plan-card="true"]');
+        const useCustomBtn = event.target.closest('[data-copilot-plan-use-custom="true"]');
+        if (useCustomBtn && !state.brainstormSending && !state.brainstormTestRunning) {
+            const card = useCustomBtn.closest('[data-copilot-plan-card="true"]');
+            const proposalId = useCustomBtn.getAttribute('data-plan-proposal-id');
             const ta = card?.querySelector('[data-copilot-plan-custom-input]');
             const raw = ta ? String(ta.value || '').trim() : '';
-            if (!proposalId || !raw || state.brainstormSending || state.brainstormTestRunning) {
-                if (!raw) alert('Enter a custom direction first.');
+            if (!proposalId || !card) return;
+            event.preventDefault();
+            if (!raw) {
+                alert('Enter a custom direction first.');
                 return;
             }
+            card.querySelectorAll('.copilot-plan-option').forEach((b) => b.classList.remove('is-selected'));
+            card.querySelector('.copilot-plan-custom')?.classList.add('is-selected');
+            card.dataset.planSelCustom = '1';
+            delete card.dataset.planSelOptionId;
+            card.dataset.planSelTitle = 'Custom';
+            card.dataset.planSelDetail = raw;
+            showCopilotPlanConfirmRow(card);
+            return;
+        }
+
+        const planCancelSel = event.target.closest('[data-copilot-plan-cancel-select="true"]');
+        if (planCancelSel && !state.brainstormSending && !state.brainstormTestRunning) {
+            const card = planCancelSel.closest('[data-copilot-plan-card="true"]');
+            if (card) {
+                event.preventDefault();
+                clearCopilotPlanSelectionUi(card);
+            }
+            return;
+        }
+
+        const planConfirm = event.target.closest('[data-copilot-plan-confirm="true"]');
+        if (planConfirm && !planConfirm.disabled && !state.brainstormSending && !state.brainstormTestRunning) {
+            const card = planConfirm.closest('[data-copilot-plan-card="true"]');
+            const proposalId = card?.getAttribute('data-plan-proposal-id');
+            if (!proposalId || !card) return;
             event.preventDefault();
-            void submitCopilotPlanChoice(proposalId, 'Custom', raw, raw);
+            if (card.dataset.planSelCustom === '1') {
+                const ta = card.querySelector('[data-copilot-plan-custom-input]');
+                const raw = ta ? String(ta.value || '').trim() : '';
+                if (!raw) {
+                    alert('Enter a custom direction first.');
+                    return;
+                }
+                const msg = `I choose (custom): ${raw}`;
+                void confirmCopilotPlanSelection(proposalId, 'Custom', raw, msg);
+                return;
+            }
+            const title = card.dataset.planSelTitle || '';
+            if (!title) return;
+            const detail = card.dataset.planSelDetail || '';
+            const optionId = card.dataset.planSelOptionId || '';
+            const msg = detail ? `I choose (${optionId || 'option'}): ${title}\n${detail}` : `I choose (${optionId || 'option'}): ${title}`;
+            void confirmCopilotPlanSelection(proposalId, title, detail, msg);
+            return;
         }
     });
 
@@ -2908,57 +3245,90 @@ function renderImageTile(image, index = 0) {
     `;
 }
 
-function bindEntryStudioEvents(entry) {
+function bindEntryStudioEvents() {
     dom.studioContent.querySelector('#entry-title-input')?.addEventListener('input', (event) => {
-        entry.title = event.target.value;
-        entry.updatedAt = Date.now();
+        const live = getSelectedEntry();
+        if (!live) return;
+        live.title = event.target.value;
+        live.updatedAt = Date.now();
         queueSaveCurrentWorld();
-        dom.studioTitle.textContent = entry.title || 'Untitled Entry';
+        dom.studioTitle.textContent = live.title || 'Untitled Entry';
     });
 
     dom.studioContent.querySelector('#entry-status-input')?.addEventListener('change', (event) => {
-        entry.status = event.target.value;
-        entry.updatedAt = Date.now();
+        const live = getSelectedEntry();
+        if (!live) return;
+        live.status = event.target.value;
+        live.updatedAt = Date.now();
         queueSaveCurrentWorld();
     });
 
     dom.studioContent.querySelector('#entry-summary-input')?.addEventListener('input', (event) => {
-        entry.summary = event.target.value;
-        entry.updatedAt = Date.now();
+        const live = getSelectedEntry();
+        if (!live) return;
+        live.summary = event.target.value;
+        live.updatedAt = Date.now();
         queueSaveCurrentWorld();
     });
 
     dom.studioContent.querySelector('#entry-content-input')?.addEventListener('input', (event) => {
-        entry.content = event.target.value;
-        entry.updatedAt = Date.now();
+        const live = getSelectedEntry();
+        if (!live) return;
+        live.content = event.target.value;
+        live.updatedAt = Date.now();
         queueSaveCurrentWorld();
     });
 
     dom.studioContent.querySelector('#entry-tags-input')?.addEventListener('input', (event) => {
-        entry.tags = normalizeTagList(event.target.value);
-        entry.updatedAt = Date.now();
+        const live = getSelectedEntry();
+        if (!live) return;
+        live.tags = normalizeTagList(event.target.value);
+        live.updatedAt = Date.now();
         queueSaveCurrentWorld();
     });
 
     dom.studioContent.querySelector('#entry-style-input')?.addEventListener('input', (event) => {
-        entry.styleKeywords = normalizeTagList(event.target.value);
-        entry.updatedAt = Date.now();
+        const live = getSelectedEntry();
+        if (!live) return;
+        live.styleKeywords = normalizeTagList(event.target.value);
+        live.updatedAt = Date.now();
         queueSaveCurrentWorld();
+    });
+
+    dom.studioContent.querySelector('#entry-parent-select')?.addEventListener('change', (event) => {
+        const live = getSelectedEntry();
+        if (!live) return;
+        const v = String(event.target.value || '').trim();
+        live.parentId = v || null;
+        live.updatedAt = Date.now();
+        queueSaveCurrentWorld();
+    });
+
+    dom.studioContent.querySelectorAll('[data-navigate-entry-id]').forEach((element) => {
+        element.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            const id = String(element.getAttribute('data-navigate-entry-id') || '').trim();
+            if (!id || !selectEntryById(id)) return;
+            renderEntryBoard();
+            renderEntryStudio({ instant: true });
+        });
     });
 
     dom.studioContent.querySelectorAll('[data-link-id]').forEach((element) => {
         element.addEventListener('click', () => {
-            const linkId = element.dataset.linkId;
-            const nextLinks = new Set(entry.links || []);
+            const live = getSelectedEntry();
+            if (!live) return;
+            const linkId = String(element.dataset.linkId || '');
+            const nextLinks = new Set((live.links || []).map((id) => String(id)));
             if (nextLinks.has(linkId)) {
                 nextLinks.delete(linkId);
             } else {
                 nextLinks.add(linkId);
             }
-            entry.links = Array.from(nextLinks);
-            entry.updatedAt = Date.now();
+            live.links = Array.from(nextLinks);
+            live.updatedAt = Date.now();
             queueSaveCurrentWorld();
-            renderEntryStudio();
+            syncLinkChipActiveClasses();
         });
     });
 
@@ -3331,11 +3701,12 @@ async function addBrainstormAttachmentsFromFiles(fileList) {
 /**
  * @param {string} userMessage
  * @param {string[]} attachmentUrls
- * @param {{ restoreOnAbort?: boolean, backupAttachments?: { url: string, label?: string }[] }} [opts]
+ * @param {{ restoreOnAbort?: boolean, backupAttachments?: { url: string, label?: string }[], suppressBrainstormAlerts?: boolean }} [opts]
  */
 async function sendCopilotUserTurn(userMessage, attachmentUrls = [], opts = {}) {
     const restoreOnAbort = opts.restoreOnAbort !== false;
     const backupAttachments = Array.isArray(opts.backupAttachments) ? opts.backupAttachments : null;
+    const suppressBrainstormAlerts = Boolean(opts.suppressBrainstormAlerts);
 
     if (!state.currentWorld || state.brainstormSending) return { cancelled: true };
 
@@ -3345,6 +3716,9 @@ async function sendCopilotUserTurn(userMessage, attachmentUrls = [], opts = {}) 
 
     const textConfig = getBrainstormGenerationConfig();
     if (!textConfig.apiUrl || !textConfig.apiKey) {
+        if (suppressBrainstormAlerts) {
+            return { ok: false, reason: 'no_config', message: 'Configure the text model API in settings.' };
+        }
         alert('Please configure your text model API in the settings.');
         return { cancelled: true };
     }
@@ -3404,9 +3778,12 @@ async function sendCopilotUserTurn(userMessage, attachmentUrls = [], opts = {}) 
         return streamResult;
     } catch (error) {
         console.error('Failed Anvil brainstorm chat:', error);
-        alert(`Brainstorm request failed: ${error.message}`);
         state.brainstormPendingTurn = null;
         flushCopilotThreadRefresh();
+        if (suppressBrainstormAlerts) {
+            return { ok: false, message: error.message || String(error) };
+        }
+        alert(`Brainstorm request failed: ${error.message}`);
         throw error;
     } finally {
         state.brainstormSending = false;
@@ -3419,7 +3796,8 @@ async function sendCopilotUserTurn(userMessage, attachmentUrls = [], opts = {}) 
     }
 }
 
-async function submitCopilotPlanChoice(proposalId, choiceTitle, choiceDetail, userMessage) {
+/** After user pressed Continue: mark plan chosen on server, then run one Copilot turn with the selection message. */
+async function confirmCopilotPlanSelection(proposalId, choiceTitle, choiceDetail, userMessage) {
     if (!state.currentWorld || state.brainstormSending || state.brainstormTestRunning) return;
     try {
         await patchCopilotPlanOptions([
@@ -3433,10 +3811,19 @@ async function submitCopilotPlanChoice(proposalId, choiceTitle, choiceDetail, us
         if (isBrainstormChatShellMounted()) {
             flushCopilotThreadRefresh();
         }
-        await sendCopilotUserTurn(userMessage, [], { restoreOnAbort: false });
+        const result = await sendCopilotUserTurn(userMessage, [], {
+            restoreOnAbort: false,
+            suppressBrainstormAlerts: true
+        });
+        if (result?.aborted) return;
+        if (result?.cancelled) return;
+        if (result && result.ok === false) {
+            const hint = result.message || result.reason || 'Request did not complete.';
+            alert(`Plan choice was saved, but Copilot could not continue: ${hint}`);
+        }
     } catch (err) {
         console.error('[Anvil Copilot] Plan choice failed:', err);
-        alert(`Could not apply plan choice: ${err.message}`);
+        alert(`Plan choice failed: ${err.message}`);
     }
 }
 

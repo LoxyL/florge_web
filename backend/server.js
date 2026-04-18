@@ -116,6 +116,7 @@ function sniffImageMimeFromBuffer(buf) {
 
 const ANVIL_SECTION_TEMPLATES = [
     'World',
+    'Timeline',
     'Regions',
     'Factions',
     'Characters',
@@ -135,11 +136,13 @@ const ANVIL_APPLY_OPERATION_TYPES = new Set([
     'deleteSection',
     'renameSection',
     'createEntry',
+    'createTimelineYearEntry',
     'updateEntryFields',
     'deleteEntry',
     'moveEntrySection',
     'setEntryLinks',
     'setEntryTags',
+    'setEntryParent',
     'appendEntryImages'
 ]);
 
@@ -196,6 +199,103 @@ function normalizeStringArray(value) {
     }
 
     return [];
+}
+
+function normalizeEntryParentId(value) {
+    if (value == null) return null;
+    const s = String(value).trim();
+    return s || null;
+}
+
+/** Models often use snake_case or alternate keys instead of entry.parentId. */
+function coalesceEntryParentIdFromShapes(...objects) {
+    const keyNames = [
+        'parentId',
+        'parent_id',
+        'parentEntryId',
+        'parent_entry_id',
+        'entryParentId',
+        'entry_parent_id',
+        'treeParentId'
+    ];
+    for (const obj of objects) {
+        if (!obj || typeof obj !== 'object') continue;
+        for (const k of keyNames) {
+            const n = normalizeEntryParentId(obj[k]);
+            if (n) return n;
+        }
+        const p = obj.parent;
+        if (typeof p === 'string') {
+            const n = normalizeEntryParentId(p);
+            if (n) return n;
+        } else if (p && typeof p === 'object') {
+            const n = normalizeEntryParentId(p.id ?? p.entryId);
+            if (n) return n;
+        }
+    }
+    return null;
+}
+
+/** When the model gives a calendar year instead of a parent entry id, resolve against year anchors in apply. */
+function coalesceAttachToTimelineYearFromShapes(...objects) {
+    const keyNames = [
+        'attachToTimelineYear',
+        'parentTimelineYear',
+        'attachYear',
+        'underYear',
+        'timelineParentYear',
+        'parentYearAnchor',
+        'anchorYear'
+    ];
+    for (const obj of objects) {
+        if (!obj || typeof obj !== 'object') continue;
+        for (const k of keyNames) {
+            if (!(k in obj)) continue;
+            const n = Number(obj[k]);
+            if (Number.isFinite(n)) return n;
+        }
+    }
+    return null;
+}
+
+function normalizeTimelineKind(value) {
+    const v = String(value || '').trim().toLowerCase();
+    if (v === 'year') return 'year';
+    return 'none';
+}
+
+function normalizeTimelineYearValue(value, kind) {
+    if (kind !== 'year') return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+}
+
+/** Walk parentId chain from startId; if entryId is reached, linking entryId -> newParentId would create a cycle. */
+function wouldCreateAnvilParentCycle(world, entryId, newParentId) {
+    if (!newParentId || !entryId || newParentId === entryId) return true;
+    let cursor = newParentId;
+    const seen = new Set();
+    for (let i = 0; i < 512; i += 1) {
+        if (cursor === entryId) return true;
+        if (seen.has(cursor)) return true;
+        seen.add(cursor);
+        const node = findAnvilEntryById(world, cursor);
+        if (!node) return false;
+        const p = normalizeEntryParentId(node.parentId);
+        if (!p) return false;
+        cursor = p;
+    }
+    return true;
+}
+
+function validateAnvilParentAssignment(world, entryId, parentIdRaw) {
+    const parentId = normalizeEntryParentId(parentIdRaw);
+    if (!parentId) return { ok: true, parentId: null };
+    if (!entryId || parentId === entryId) return { ok: false, reason: 'parent_is_self' };
+    const parentEntry = findAnvilEntryById(world, parentId);
+    if (!parentEntry) return { ok: false, reason: 'parent_not_found' };
+    if (wouldCreateAnvilParentCycle(world, entryId, parentId)) return { ok: false, reason: 'parent_cycle' };
+    return { ok: true, parentId };
 }
 
 /** Merge tag/style candidates from nested entry objects and common model aliases (tag, style, style_keywords). */
@@ -289,6 +389,8 @@ function orderedAnvilSectionKeys(sections = {}) {
 
 function createAnvilEntry(entry = {}, sectionName = 'World') {
     const now = Date.now();
+    const timelineKind = normalizeTimelineKind(entry.timelineKind);
+    const timelineYear = normalizeTimelineYearValue(entry.timelineYear, timelineKind);
     return {
         id: entry.id || `entry_${now}_${Math.floor(Math.random() * 100000)}`,
         title: entry.title || `New ${sectionName} Entry`,
@@ -300,6 +402,9 @@ function createAnvilEntry(entry = {}, sectionName = 'World') {
         references: safeArray(entry.references),
         tags: normalizeStringArray(entry.tags),
         links: normalizeStringArray(entry.links),
+        parentId: normalizeEntryParentId(entry.parentId),
+        timelineKind,
+        timelineYear,
         aiContextSummary: entry.aiContextSummary || '',
         generationPresets: entry.generationPresets || {},
         styleKeywords: normalizeStringArray(entry.styleKeywords),
@@ -582,6 +687,53 @@ function buildAnvilTextOutputSpecification(action) {
     return [...common, ...specific].join('\n');
 }
 
+function buildAnvilEntryTimelineContextBlock(world, entry) {
+    if (!entry || !world) return 'Timeline / parent: (no entry)';
+    const lines = [];
+    const pid = normalizeEntryParentId(entry.parentId);
+    if (pid) {
+        const p = findAnvilEntryById(world, pid);
+        if (p) {
+            const y = normalizeTimelineKind(p.timelineKind) === 'year' ? `year anchor ${p.timelineYear}` : 'lore entry';
+            lines.push(`parentId → ${p.id} ("${p.title || ''}", ${y}).`);
+        } else {
+            lines.push(`parentId → ${pid} (parent entry not found in world — fix or clear).`);
+        }
+    } else {
+        lines.push('parentId: none (root-level for timeline tree).');
+    }
+    const kids = flattenAnvilEntries(world).filter((e) => normalizeEntryParentId(e.parentId) === String(entry.id));
+    if (kids.length) {
+        lines.push(
+            `Child entries (${kids.length}): ${kids
+                .map((k) => `"${k.title || k.id}"`)
+                .slice(0, 14)
+                .join(', ')}${kids.length > 14 ? ' …' : ''}.`
+        );
+    } else {
+        lines.push('Child entries: none.');
+    }
+    if (normalizeTimelineKind(entry.timelineKind) === 'year') {
+        lines.push(`This entry is a YEAR ANCHOR (timelineYear ${entry.timelineYear}).`);
+    }
+    const anchors = flattenAnvilEntries(world)
+        .filter(
+            (e) =>
+                normalizeTimelineKind(e.timelineKind) === 'year' &&
+                normalizeTimelineYearValue(e.timelineYear, 'year') != null
+        )
+        .sort((a, b) => Number(a.timelineYear) - Number(b.timelineYear))
+        .slice(0, 36)
+        .map((e) => `${e.timelineYear}→${e.id}`);
+    lines.push(
+        anchors.length
+            ? `All year anchors (year→entryId, up to 36): ${anchors.join('; ')}.`
+            : 'All year anchors: none — create in Timeline with timelineKind "year" and timelineYear if the user needs a dated spine.'
+    );
+    lines.push('links[] is for cross-references only; parentId is the single tree parent (often a year anchor).');
+    return lines.join('\n');
+}
+
 function buildAnvilTextUserPrompt({ world, sectionName, entry, action, userPrompt }) {
     const contextParts = getAnvilContextParts(world, sectionName, entry);
 
@@ -601,13 +753,20 @@ function buildAnvilTextUserPrompt({ world, sectionName, entry, action, userPromp
         '',
         'Current Entry:',
         JSON.stringify({
+            id: entry?.id || '',
             title: entry?.title || '',
             status: entry?.status || 'Seed',
             summary: entry?.summary || '',
             content: truncateText(entry?.content || '', 2200),
             tags: safeArray(entry?.tags),
-            styleKeywords: safeArray(entry?.styleKeywords)
+            styleKeywords: safeArray(entry?.styleKeywords),
+            parentId: normalizeEntryParentId(entry?.parentId),
+            timelineKind: normalizeTimelineKind(entry?.timelineKind),
+            timelineYear: normalizeTimelineYearValue(entry?.timelineYear, normalizeTimelineKind(entry?.timelineKind))
         }, null, 2),
+        '',
+        'Timeline / parent tree (for this entry):',
+        buildAnvilEntryTimelineContextBlock(world, entry),
         '',
         'Linked Entries:',
         contextParts.linkedEntries.length > 0
@@ -681,10 +840,26 @@ function buildAnvilBrainstormWorldDigest(world) {
             content: truncateText(entry.content || '', 600),
             tags: safeArray(entry.tags),
             links: safeArray(entry.links),
+            parentId: normalizeEntryParentId(entry.parentId),
+            timelineKind: normalizeTimelineKind(entry.timelineKind),
+            timelineYear: normalizeTimelineYearValue(entry.timelineYear, normalizeTimelineKind(entry.timelineKind)),
             styleKeywords: safeArray(entry.styleKeywords),
             imageLabels: safeArray(entry.images).map((image) => image.label || image.prompt || image.url).slice(0, 4)
         }));
     }
+
+    const timelineAnchors = flattenAnvilEntries(normalizedWorld)
+        .filter(
+            (e) =>
+                normalizeTimelineKind(e.timelineKind) === 'year' &&
+                normalizeTimelineYearValue(e.timelineYear, 'year') != null
+        )
+        .map((e) => ({
+            id: e.id,
+            title: e.title || '',
+            timelineYear: normalizeTimelineYearValue(e.timelineYear, 'year')
+        }))
+        .sort((a, b) => Number(a.timelineYear) - Number(b.timelineYear));
 
     return {
         id: normalizedWorld.id,
@@ -697,6 +872,7 @@ function buildAnvilBrainstormWorldDigest(world) {
             label: anchor.label || 'Style Anchor',
             entryId: anchor.entryId || ''
         })),
+        timelineAnchors,
         sections: sectionDigest
     };
 }
@@ -745,7 +921,10 @@ function buildAnvilListSectionEntriesResponse(world, sectionFilterRaw) {
                 status: entry.status,
                 summaryPreview: truncateText(entry.summary || '', 240),
                 tags: safeArray(entry.tags).slice(0, 12),
-                styleKeywords: safeArray(entry.styleKeywords).slice(0, 12)
+                styleKeywords: safeArray(entry.styleKeywords).slice(0, 12),
+                parentId: normalizeEntryParentId(entry.parentId),
+                timelineKind: normalizeTimelineKind(entry.timelineKind),
+                timelineYear: normalizeTimelineYearValue(entry.timelineYear, normalizeTimelineKind(entry.timelineKind))
             }))
         };
     });
@@ -765,14 +944,18 @@ function buildAnvilBrainstormToolSystemPrompt(world, activeSection = 'World', ac
         'You have tools to read the live world and to apply edits. anvil_list_sections returns all section names and entry counts. anvil_list_section_entries lists entries (id, title, status, summary preview) for one section or for every section if you omit section_name. anvil_get_world_digest is a heavier full snapshot; anvil_get_entry loads one entry with longer body text.',
         'Multi-step tools are REQUIRED when the user wants the world changed: you may call read tools first, then you MUST call anvil_apply_world_operations in a later model step with the actual mutations. One read-only tool call followed by plain text is NOT enough if they asked you to create or edit canon. You may issue multiple tool rounds in a row (read → apply → read again to verify) until the task is done.',
         'If anvil_apply_world_operations returns ok:false (for example no_operations) or applied:0 while the user asked you to change the world, you MUST call anvil_apply_world_operations again with a valid non-empty operations array before you finish. Never claim scripted success (for example a user-requested last line like *_OK) unless the required writes actually succeeded (ok:true and applied greater than 0 for those writes).',
-        'Use anvil_apply_world_operations to persist changes (world fields, add/delete/rename sections, create/update/delete/move entries, links, tags, appendEntryImages). Writes apply immediately on the server.',
+        'Use anvil_apply_world_operations to persist changes (world fields, add/delete/rename sections, create/update/delete/move entries, links, tags, appendEntryImages, setEntryParent, createTimelineYearEntry). Writes apply immediately on the server.',
+        'Timeline vs links (CRITICAL): parentId is exactly one optional parent entry id for a tree edge (the Timeline view). links[] is a separate many-to-many "related entries" list — never treat links as parent/child. When the user mentions years, eras, "before/after", chronology, or anchoring events to dates: read digest.timelineAnchors for existing year entry ids; create missing years with createTimelineYearEntry (or createEntry in Timeline with timelineKind "year" and numeric timelineYear). Then attach lore with setEntryParent { entryId, parentId } where parentId is the year anchor id (or another lore entry). You may set parentId on createEntry.entry in the same apply batch (aliases parent_id / parentEntryId are accepted). If you know the calendar year but not the anchor id, pass attachToTimelineYear on createEntry when that year matches a single anchor.',
+        'Year anchors must have timelineKind "year" and a finite timelineYear. Non-year lore entries should keep timelineKind "none" (default) unless they are themselves a dated heading. After writes that affect chronology, re-digest or list_section_entries to confirm parentId and anchors.',
         'addSection / deleteSection / renameSection: custom section names max 80 chars. deleteSection: non-empty sections need relocateEntriesTo. You cannot delete or rename the World section. renameSection: { fromSection, toSection }; target name must not already exist. moveEntrySection creates the target section if missing.',
         'For updateWorldFields, put name, summary, canonContext, themeKeywords, coverImage either inside a fields object or at the top level of that operation next to type (both are accepted).',
         'Entries support tags (short labels for browsing/filtering) and styleKeywords (phrases that steer image generation). Every createEntry MUST include entry.tags and entry.styleKeywords as arrays of strings, each with at least 2 items (derive them from the entry role, section, and tone). On updateEntryFields when adding lore, set tags and styleKeywords the same way. Use entry.tag or entry.style as aliases if needed.',
         'appendEntryImages: { type, entryId, images: [{ url, label }] } — append reference images to an entry; url must be an existing Anvil asset path such as ./anvil_assets/worldId_....',
         'The user may attach images in chat (vision). Describe what you see when it matters to the world; use tools when they ask you to store those images on an entry.',
         'You may answer from general knowledge when the user only wants chat; use tools whenever the question depends on this world or when they ask you to change it.',
-        'When you want the user to pick among concrete creative directions (like a Cursor plan), call anvil_propose_directions with 2–6 options (id, title, optional detail). Do not replace this with Markdown numbered lists for exclusive choices. After calling it, briefly acknowledge in plain text that they can choose in the panel or type freely.',
+        'Branching choices (IMPORTANT): Whenever the user is brainstorming, asks for ideas, options, "which way", tone, scope, or has not pinned a single concrete path, you should usually call anvil_propose_directions in this assistant turn (after a quick read if needed) so they get clickable choices in the chat panel — like a Cursor plan. Offer 3 or 4 distinct directions when possible (2 minimum, 6 maximum). Do not bury exclusive forks only in long prose or Markdown lists; the panel is the primary UX for picking a path.',
+        'Call anvil_propose_directions before large anvil_apply_world_operations when more than one reasonable interpretation exists (e.g. which faction to deepen, which region to add, which tone for canon). If they gave one unmistakable instruction ("rename X to Y"), skip the plan and apply directly.',
+        'After anvil_propose_directions succeeds, keep your visible reply to one or two short sentences; the options carry the detail. The client UI requires them to highlight an option (or custom text) and press Continue before their choice is sent as the next user message; they may also ignore the card and type in the composer.',
         `UI focus — section: ${activeSection}. Focused entry: ${focusedEntry ? `${focusedEntry.title} (${focusedEntry.id})` : 'none'}.`
     ].join(' ');
 }
@@ -785,7 +968,7 @@ function getAnvilBrainstormTools() {
             function: {
                 name: 'anvil_get_world_digest',
                 description:
-                    'Returns a compact JSON snapshot of the entire world (sections, entries with truncated bodies, canon, theme). Use before edits. If the user asked you to change data, follow up in the SAME multi-step turn with anvil_apply_world_operations (do not stop after only this read). The response includes _copilot_followup as a reminder.',
+                    'Returns a compact JSON snapshot of the entire world (sections, entries with truncated bodies, canon, theme, timelineAnchors list of year nodes id+year, per-entry parentId/timelineKind/timelineYear). Use before edits. If the user asked you to change data, follow up in the SAME multi-step turn with anvil_apply_world_operations (do not stop after only this read). The response includes _copilot_followup as a reminder.',
                 parameters: {
                     type: 'object',
                     properties: {}
@@ -797,7 +980,7 @@ function getAnvilBrainstormTools() {
             function: {
                 name: 'anvil_get_entry',
                 description:
-                    'Returns one entry with longer content (still capped). Use entry id values from anvil_get_world_digest.',
+                    'Returns one entry with longer content (still capped), including parentId, timelineKind, timelineYear, links. Use entry id values from anvil_get_world_digest.',
                 parameters: {
                     type: 'object',
                     properties: {
@@ -841,7 +1024,7 @@ function getAnvilBrainstormTools() {
             function: {
                 name: 'anvil_propose_directions',
                 description:
-                    'Show a choice panel in the chat (like an IDE plan). Use when several worldbuilding directions are viable and the user should pick one. Each option needs a stable id and a short title; optional detail explains the direction. Does not modify the world. After calling, keep your visible reply short; the user selects in the UI or may ignore the panel by sending a normal message.',
+                    'PREFERRED for branching worldbuilding: shows a clickable choice panel in chat (Cursor-style plan). Use often when the user wants ideas, brainstorm, tone, scope, "where next", or any message that could go multiple substantive ways — not only when you are unsure. Call early in the turn (often right after anvil_get_world_digest or anvil_list_section_entries) instead of dumping a long list in plain text. Supply prompt (one line framing) plus 2–6 options: each needs title; id is optional (server fills). detail is optional. Does not modify the world. After success, reply briefly; user picks in UI, Custom, or ignores by chatting.',
                 parameters: {
                     type: 'object',
                     properties: {
@@ -872,7 +1055,7 @@ function getAnvilBrainstormTools() {
             type: 'function',
             function: {
                 name: 'anvil_apply_world_operations',
-                description: `Apply structured mutations immediately. You MUST pass a JSON object whose top-level key is "operations" (array), e.g. {"operations":[{"type":"updateWorldFields","fields":{"name":"..."}}]}. Sending {} or omitting operations is invalid. A single operation may also be sent at the root (same keys as one array element); the server will wrap it. Operation "type" may be: updateWorldFields, addSection, deleteSection, renameSection, createEntry, updateEntryFields, deleteEntry, moveEntrySection, setEntryLinks, setEntryTags, appendEntryImages. Section names may be any of the common set: ${sectionsList}, or custom short labels (max ${ANVIL_SECTION_NAME_MAX} chars). addSection: { type, sectionName }. deleteSection: { type, sectionName, relocateEntriesTo } — relocateEntriesTo is required when the section is non-empty (moves all entries). renameSection: { type, fromSection, toSection } (also accepts from/to or oldName/newName). Cannot delete or rename section "World". For updateWorldFields use fields: { name, summary, canonContext, themeKeywords, coverImage } OR those keys at the operation root. For createEntry use section and entry: { title, summary, content, status, tags, styleKeywords, links }. tags = 2–8 short labels (e.g. region, faction, role). styleKeywords = 2–10 visual/lore cues for concept art (mood, palette, era, materials). Same fields accepted at operation root; aliases: tag→tags, style or style_keywords→styleKeywords. For updateEntryFields use entryId and fields: { title, summary, content, status, canonContext, tags, links, styleKeywords } OR those keys at the operation root next to type. For moveEntrySection use entryId and toSection (target section is created if missing). For appendEntryImages use entryId and images: [{ url, label }]. The tool result ok is false when nothing was applied (check applied/rejected counts).`,
+                description: `Apply structured mutations immediately. You MUST pass a JSON object whose top-level key is "operations" (array), e.g. {"operations":[{"type":"updateWorldFields","fields":{"name":"..."}}]}. Sending {} or omitting operations is invalid. A single operation may also be sent at the root (same keys as one array element); the server will wrap it. Operation "type" may be: updateWorldFields, addSection, deleteSection, renameSection, createEntry, createTimelineYearEntry, updateEntryFields, deleteEntry, moveEntrySection, setEntryLinks, setEntryTags, setEntryParent, appendEntryImages. Section names may be any of the common set: ${sectionsList}, or custom short labels (max ${ANVIL_SECTION_NAME_MAX} chars). addSection: { type, sectionName }. deleteSection: { type, sectionName, relocateEntriesTo } — relocateEntriesTo is required when the section is non-empty (moves all entries). renameSection: { type, fromSection, toSection } (also accepts from/to or oldName/newName). Cannot delete or rename section "World". For updateWorldFields use fields: { name, summary, canonContext, themeKeywords, coverImage } OR those keys at the operation root. For createEntry use section and entry: { title, summary, content, status, tags, styleKeywords, links, parentId?, timelineKind?, timelineYear? }. parentId is the tree parent entry id (use digest.timelineAnchors ids for dated lore — do not leave chronology-only requests rootless). Aliases: parent_id, parentEntryId, entry_parent_id, or parent: "<entry id>". If you only know the calendar year, set attachToTimelineYear (number) on the operation or entry; the server links to the unique year anchor with that timelineYear when one exists. timelineKind "year" plus timelineYear number marks a calendar anchor on the Timeline view. tags = 2–8 short labels (e.g. region, faction, role). styleKeywords = 2–10 visual/lore cues for concept art (mood, palette, era, materials). Same fields accepted at operation root; aliases: tag→tags, style or style_keywords→styleKeywords. createTimelineYearEntry: { type, year, title?, section? (default Timeline), summary?, content?, tags?, styleKeywords? } — shorthand for a year anchor. setEntryParent: { type, entryId, parentId } — parentId null or empty clears parent; same parent id aliases as createEntry; cannot create cycles. For updateEntryFields use entryId and fields: { title, summary, content, status, canonContext, tags, links, styleKeywords } OR those keys at the operation root next to type (parentId is not set here; use setEntryParent). For moveEntrySection use entryId and toSection (target section is created if missing). For appendEntryImages use entryId and images: [{ url, label }]. The tool result ok is false when nothing was applied (check applied/rejected counts).`,
                 parameters: {
                     type: 'object',
                     properties: {
@@ -1080,7 +1263,7 @@ async function executeAnvilBrainstormToolAsync(worldHolder, worldId, toolName, a
     if (toolName === 'anvil_get_world_digest') {
         const snap = buildAnvilBrainstormWorldDigest(world);
         snap._copilot_followup =
-            'If the user wanted mutations, call anvil_apply_world_operations next. For each createEntry include entry.tags and entry.styleKeywords (arrays, each >= 2 strings).';
+            'If the user wanted mutations, call anvil_apply_world_operations next. For each createEntry include entry.tags and entry.styleKeywords (arrays, each >= 2 strings). Chronology: digest.timelineAnchors lists year nodes (id + timelineYear). parentId is a SINGLE parent entry id (often a year anchor); links[] is separate cross-links — do not use links[] to mean parent. For events under a year: pass entry.parentId (or parent_id) to the year anchor id, or attachToTimelineYear if exactly one anchor matches that year, or setEntryParent after createEntry. Missing year? createTimelineYearEntry first. If they asked for ideas, options, brainstorm, or have not chosen a single direction, call anvil_propose_directions first (3–4 options) before big writes.';
         return JSON.stringify(snap);
     }
 
@@ -1104,6 +1287,9 @@ async function executeAnvilBrainstormToolAsync(worldHolder, worldId, toolName, a
             content: truncateText(entry.content || '', 12000),
             tags: safeArray(entry.tags),
             links: safeArray(entry.links),
+            parentId: normalizeEntryParentId(entry.parentId),
+            timelineKind: normalizeTimelineKind(entry.timelineKind),
+            timelineYear: normalizeTimelineYearValue(entry.timelineYear, normalizeTimelineKind(entry.timelineKind)),
             styleKeywords: safeArray(entry.styleKeywords),
             images: safeArray(entry.images).map((image) => ({
                 id: image.id,
@@ -1132,7 +1318,9 @@ async function executeAnvilBrainstormToolAsync(worldHolder, worldId, toolName, a
             proposalId: parsed.proposalId,
             prompt: parsed.prompt,
             options: parsed.options,
-            note: 'Shown in the chat UI. The user may pick an option, use Custom, or send a normal message to skip this plan.'
+            note: 'Shown in the chat UI. The user highlights an option (or prepares custom text), presses Continue to send that choice to you, or sends a normal composer message to skip the plan.',
+            _copilot_followup:
+                'Wait for the user to press Continue on the plan card or to send a free-form message. If they Continue with a choice, align the following reply and any tools with that path.'
         });
     }
 
@@ -1749,6 +1937,33 @@ async function runAnvilBrainstormWithToolsStreaming({
 }
 
 function normalizeBrainstormOperation(operation = {}) {
+    if (String(operation?.type || '').trim() === 'createTimelineYearEntry') {
+        const yearRaw = operation.year ?? operation.timelineYear ?? operation.entry?.timelineYear;
+        const year = Number(yearRaw);
+        if (!Number.isFinite(year)) return null;
+        const section = sanitizeAnvilSectionName(operation.section ?? operation.entry?.section ?? 'Timeline') || 'Timeline';
+        const e = operation.entry && typeof operation.entry === 'object' ? { ...operation.entry } : {};
+        operation = {
+            ...operation,
+            type: 'createEntry',
+            section,
+            entry: {
+                title: String(e.title ?? operation.title ?? `Year ${year}`).trim(),
+                summary: e.summary != null ? e.summary : operation.summary ?? '',
+                content: e.content != null ? e.content : operation.content ?? '',
+                status: e.status || operation.status || 'Seed',
+                tags: 'tags' in e ? e.tags : operation.tags,
+                links: 'links' in e ? e.links : operation.links,
+                styleKeywords: 'styleKeywords' in e ? e.styleKeywords : operation.styleKeywords,
+                timelineKind: 'year',
+                timelineYear: year,
+                parentId:
+                    coalesceEntryParentIdFromShapes(e, operation, e.fields, operation.fields) ??
+                    normalizeEntryParentId(e.parentId ?? operation.parentId)
+            }
+        };
+    }
+
     const base = {
         id: operation.id || `op_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
         type: String(operation.type || '').trim(),
@@ -1827,6 +2042,21 @@ function normalizeBrainstormOperation(operation = {}) {
             entrySrc.style,
             operation.style
         );
+        const timelineKindRaw = entrySrc.timelineKind ?? operation.timelineKind;
+        const timelineKind = normalizeTimelineKind(timelineKindRaw);
+        const timelineYearRaw = entrySrc.timelineYear ?? operation.timelineYear;
+        const coalescedParentId = coalesceEntryParentIdFromShapes(
+            entrySrc,
+            operation,
+            entrySrc.fields,
+            operation.fields
+        );
+        const attachToTimelineYear = coalesceAttachToTimelineYearFromShapes(
+            entrySrc,
+            operation,
+            entrySrc.fields,
+            operation.fields
+        );
         const entry = createAnvilEntry(
             {
                 title: entrySrc.title || operation.title || `New ${section} Entry`,
@@ -1835,14 +2065,21 @@ function normalizeBrainstormOperation(operation = {}) {
                 status: entrySrc.status || operation.status || 'Seed',
                 tags,
                 links: normalizeStringArray(entrySrc.links != null ? entrySrc.links : operation.links),
-                styleKeywords
+                styleKeywords,
+                parentId: coalescedParentId ?? normalizeEntryParentId(entrySrc.parentId ?? operation.parentId),
+                timelineKind,
+                timelineYear: timelineYearRaw
             },
             section
         );
 
         fillCreateEntryMetadataDefaults(entry, section);
 
-        return { ...base, section, entry };
+        const out = { ...base, section, entry };
+        if (attachToTimelineYear != null && Number.isFinite(attachToTimelineYear)) {
+            out.attachToTimelineYear = attachToTimelineYear;
+        }
+        return out;
     }
 
     if (base.type === 'updateEntryFields') {
@@ -1928,6 +2165,20 @@ function normalizeBrainstormOperation(operation = {}) {
         };
     }
 
+    if (base.type === 'setEntryParent') {
+        const entryId = String(operation.entryId || operation.entry_id || '').trim();
+        if (!entryId) return null;
+        const parentId =
+            coalesceEntryParentIdFromShapes(operation, operation.fields) ??
+            normalizeEntryParentId(operation.parentId);
+        return {
+            ...base,
+            entryId,
+            titleHint: String(operation.titleHint || '').trim(),
+            parentId
+        };
+    }
+
     if (base.type === 'setEntryTags') {
         return {
             ...base,
@@ -1980,6 +2231,9 @@ function removeAnvilEntryFromSections(world, entryId) {
 function cleanAnvilWorldReferences(world, removedEntryId) {
     for (const entry of flattenAnvilEntries(world)) {
         entry.links = safeArray(entry.links).filter((linkId) => linkId !== removedEntryId);
+        if (normalizeEntryParentId(entry.parentId) === removedEntryId) {
+            entry.parentId = null;
+        }
     }
 
     world.styleAnchors = safeArray(world.styleAnchors).filter((anchor) => anchor.entryId !== removedEntryId);
@@ -2123,7 +2377,44 @@ function applyAnvilOperations(world, operations = []) {
         if (operation.type === 'createEntry') {
             const section = operation.section || 'World';
             nextWorld.sections[section] = safeArray(nextWorld.sections[section]);
-            nextWorld.sections[section].unshift(createAnvilEntry(operation.entry, section));
+            const newEntry = createAnvilEntry(operation.entry, section);
+            let parentIdGuess = normalizeEntryParentId(newEntry.parentId);
+            if (
+                !parentIdGuess &&
+                operation.attachToTimelineYear != null &&
+                Number.isFinite(Number(operation.attachToTimelineYear))
+            ) {
+                const y = Number(operation.attachToTimelineYear);
+                const matches = flattenAnvilEntries(nextWorld).filter(
+                    (e) =>
+                        normalizeTimelineKind(e.timelineKind) === 'year' &&
+                        normalizeTimelineYearValue(e.timelineYear, 'year') === y
+                );
+                if (matches.length) {
+                    matches.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+                    parentIdGuess = matches[0].id;
+                }
+            }
+            newEntry.parentId = parentIdGuess;
+            if (newEntry.timelineKind === 'year' && (newEntry.timelineYear == null || !Number.isFinite(newEntry.timelineYear))) {
+                appliedOperations.push({
+                    ...finalizedOperation,
+                    status: 'rejected',
+                    reason: 'year_anchor_missing_timelineYear'
+                });
+                continue;
+            }
+            const parentCheck = validateAnvilParentAssignment(nextWorld, newEntry.id, newEntry.parentId);
+            if (!parentCheck.ok) {
+                appliedOperations.push({
+                    ...finalizedOperation,
+                    status: 'rejected',
+                    reason: parentCheck.reason || 'invalid_parent'
+                });
+                continue;
+            }
+            newEntry.parentId = parentCheck.parentId;
+            nextWorld.sections[section].unshift(newEntry);
             appliedOperations.push(finalizedOperation);
             continue;
         }
@@ -2135,10 +2426,14 @@ function applyAnvilOperations(world, operations = []) {
         }
 
         if (operation.type === 'updateEntryFields') {
-            Object.assign(targetEntry, operation.fields || {});
-            if (operation.fields?.tags) targetEntry.tags = normalizeStringArray(operation.fields.tags);
-            if (operation.fields?.links) targetEntry.links = normalizeStringArray(operation.fields.links);
-            if (operation.fields?.styleKeywords) targetEntry.styleKeywords = normalizeStringArray(operation.fields.styleKeywords);
+            const rawFields = operation.fields && typeof operation.fields === 'object' ? { ...operation.fields } : {};
+            delete rawFields.parentId;
+            delete rawFields.timelineKind;
+            delete rawFields.timelineYear;
+            Object.assign(targetEntry, rawFields);
+            if (rawFields.tags) targetEntry.tags = normalizeStringArray(rawFields.tags);
+            if (rawFields.links) targetEntry.links = normalizeStringArray(rawFields.links);
+            if (rawFields.styleKeywords) targetEntry.styleKeywords = normalizeStringArray(rawFields.styleKeywords);
             targetEntry.updatedAt = Date.now();
             appliedOperations.push(finalizedOperation);
             continue;
@@ -2163,6 +2458,22 @@ function applyAnvilOperations(world, operations = []) {
 
         if (operation.type === 'setEntryLinks') {
             targetEntry.links = normalizeStringArray(operation.links);
+            targetEntry.updatedAt = Date.now();
+            appliedOperations.push(finalizedOperation);
+            continue;
+        }
+
+        if (operation.type === 'setEntryParent') {
+            const parentCheck = validateAnvilParentAssignment(nextWorld, targetEntry.id, operation.parentId);
+            if (!parentCheck.ok) {
+                appliedOperations.push({
+                    ...finalizedOperation,
+                    status: 'rejected',
+                    reason: parentCheck.reason || 'invalid_parent'
+                });
+                continue;
+            }
+            targetEntry.parentId = parentCheck.parentId;
             targetEntry.updatedAt = Date.now();
             appliedOperations.push(finalizedOperation);
             continue;
@@ -3056,9 +3367,9 @@ app.post('/gpt/anvil/asset/upload', (req, res) => {
                 await fsPromises.unlink(req.file.path).catch(() => {});
                 return res.status(400).json({
                     error: 'Uploaded file is not a valid image (unrecognized or empty binary).'
-                });
-            }
-        } catch (readErr) {
+                        });
+                    }
+                } catch (readErr) {
             await fsPromises.unlink(req.file.path).catch(() => {});
             console.error('[ERROR][ANVIL] Asset upload validation failed:', readErr);
             return res.status(500).json({ error: 'Could not validate uploaded image.' });

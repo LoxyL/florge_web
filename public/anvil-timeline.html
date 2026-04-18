@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Florge - Anvil Timeline</title>
+    <link rel="stylesheet" href="./css/anvil.css">
+</head>
+<body class="timeline-page-body">
+    <div class="timeline-page-shell">
+        <aside class="timeline-sidebar">
+            <a href="anvil.html" class="timeline-sidebar-title">Florge · Anvil</a>
+            <div class="eyebrow">Worlds</div>
+            <div id="timeline-world-list" class="timeline-world-list"></div>
+        </aside>
+        <main class="timeline-main">
+            <h1 id="timeline-world-name">Timeline</h1>
+            <p id="timeline-world-sub" class="timeline-muted"></p>
+            <div id="timeline-spine-root"></div>
+        </main>
+    </div>
+    <div id="timeline-popover" class="timeline-popover" role="tooltip" aria-hidden="true">
+        <p class="timeline-popover-summary" id="timeline-popover-text"></p>
+        <img id="timeline-popover-img" alt="" hidden>
+    </div>
+    <script type="module" src="js/anvil-timeline.js"></script>
+</body>
+</html>
