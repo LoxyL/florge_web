@@ -151,9 +151,7 @@ export class BotGPT extends BaseGPT {
             yield piece;
         }
 
-        if (fullResponse) {
-            this.messages.push({ role: 'assistant', content: fullResponse });
-        }
+        // assistant 消息已由 answer() 追加，此处不再 push，否则会重复并导致刷新后两条回复
 
         this.messages.push(...contextAfter);
     }
