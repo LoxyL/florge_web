@@ -47,6 +47,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
+    // Initialize custom selects logic is handled in configEvent.js
+
     // Make functions globally accessible for onclick in HTML
     window.generateImage = generateImage;
     window.deleteImage = deleteImage;

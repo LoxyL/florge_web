@@ -90,6 +90,98 @@ async function configLoad() {
     }
 }
 
+function initCustomSelects() {
+    const selects = document.querySelectorAll('.sidebar-select');
+    selects.forEach((select) => enhanceCustomSelect(select));
+    
+    document.addEventListener('click', () => {
+        document.querySelectorAll('.custom-select-wrapper').forEach(el => el.classList.remove('open'));
+    });
+}
+
+function enhanceCustomSelect(select) {
+    if (!select || select.dataset.customSelectReady === 'true') return;
+
+    select.style.display = 'none';
+    select.dataset.customSelectReady = 'true';
+        
+    const wrapper = document.createElement('div');
+    wrapper.className = 'custom-select-wrapper';
+    if (select.dataset.selectPlacement === 'up') {
+        wrapper.classList.add('custom-select-placement-up');
+    }
+    select.parentNode.insertBefore(wrapper, select);
+        
+    const trigger = document.createElement('div');
+    trigger.className = 'custom-select-trigger';
+    trigger.innerHTML = `<span>${escapeHtml(select.options[select.selectedIndex]?.text || '')}</span><span class="custom-select-arrow"></span>`;
+        
+    const optionsDiv = document.createElement('div');
+    optionsDiv.className = 'custom-select-options';
+        
+    Array.from(select.children).forEach((child) => {
+        if (child.tagName.toLowerCase() === 'optgroup') {
+            const groupLabel = document.createElement('div');
+            groupLabel.className = 'custom-select-group-label';
+            groupLabel.textContent = child.label;
+            optionsDiv.appendChild(groupLabel);
+            
+            Array.from(child.children).forEach((option) => {
+                createOptionElement(option, optionsDiv, select, trigger, wrapper);
+            });
+        } else if (child.tagName.toLowerCase() === 'option') {
+            createOptionElement(child, optionsDiv, select, trigger, wrapper);
+        }
+    });
+        
+    wrapper.appendChild(trigger);
+    wrapper.appendChild(optionsDiv);
+        
+    trigger.addEventListener('click', (event) => {
+        event.stopPropagation();
+        document.querySelectorAll('.custom-select-wrapper').forEach((element) => {
+            if (element !== wrapper) element.classList.remove('open');
+        });
+        wrapper.classList.toggle('open');
+    });
+        
+    select.addEventListener('change', () => {
+        trigger.querySelector('span').textContent = select.options[select.selectedIndex]?.text || '';
+        optionsDiv.querySelectorAll('.custom-select-option').forEach((element) => {
+            element.classList.toggle('selected', element.dataset.value === select.value);
+        });
+    });
+}
+
+function createOptionElement(option, optionsDiv, select, trigger, wrapper) {
+    const optDiv = document.createElement('div');
+    optDiv.className = 'custom-select-option';
+    optDiv.textContent = option.text;
+    optDiv.dataset.value = option.value;
+    if (option.selected) optDiv.classList.add('selected');
+        
+    optDiv.addEventListener('click', () => {
+        select.value = option.value;
+        trigger.querySelector('span').textContent = option.text;
+        select.dispatchEvent(new Event('change'));
+            
+        optionsDiv.querySelectorAll('.custom-select-option').forEach((element) => element.classList.remove('selected'));
+        optDiv.classList.add('selected');
+            
+        wrapper.classList.remove('open');
+    });
+    optionsDiv.appendChild(optDiv);
+}
+
+function escapeHtml(unsafe) {
+    return unsafe
+         .replace(/&/g, "&amp;")
+         .replace(/</g, "&lt;")
+         .replace(/>/g, "&gt;")
+         .replace(/"/g, "&quot;")
+         .replace(/'/g, "&#039;");
+}
+
 function configOpenTab(event, tabName) {
     let i, tabcontent, tabbuttons;
     
@@ -109,6 +201,10 @@ function configOpenTab(event, tabName) {
 
 configContainerInit();
 configLoad();
+
+document.addEventListener('DOMContentLoaded', () => {
+    initCustomSelects();
+});
 
 window.configSave = configSave;
 window.configOpenTab = configOpenTab;

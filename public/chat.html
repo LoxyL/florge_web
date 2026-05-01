@@ -22,9 +22,9 @@
 				<label for="model-GPT">Model</label>
 				<select name="model-GPT" id="model-GPT" class="sidebar-select">
 					<optgroup label="OpenAI · GPT-5 (2026)">
-						<option value="gpt-5.4">GPT 5.4</option>
-						<option value="gpt-5.4-mini">GPT 5.4 Mini</option>
-						<option value="gpt-5.4-nano">GPT 5.4 Nano</option>
+						<option value="gpt-5.5">GPT 5.5</option>
+						<option value="gpt-5.5-mini">GPT 5.5 Mini</option>
+						<option value="gpt-5.5-nano">GPT 5.5 Nano</option>
 					</optgroup>
 					<optgroup label="OpenAI · GPT-4 / o-series">
 						<option value="gpt-4.1">GPT 4.1</option>
@@ -76,13 +76,20 @@
 			</div>
 			<div class="chat-container-input">
 				<div class="chat-container-input-text">
-					<textarea name="message-send-GPT" id="message-send-GPT" rows="1" cols="30"></textarea>
-					<button onclick="send()" id="send-button">&#9650;</button>
-					<button onclick="streamStop()" id="stop-button">&#9632;</button>
+					<div class="painter-upload-btn" onclick="document.getElementById('image-load-button').click()">
+						<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+					</div>
+					<textarea name="message-send-GPT" id="message-send-GPT" rows="1" cols="30" placeholder="Message Florge..."></textarea>
+					<button onclick="send()" id="send-button">
+						<svg viewBox="0 0 24 24" width="20" height="20" fill="white"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>
+					</button>
+					<button onclick="streamStop()" id="stop-button">
+						<svg viewBox="0 0 24 24" width="20" height="20" fill="white"><path d="M6 6h12v12H6z"></path></svg>
+					</button>
 				</div>
 				<div class="chat-container-input-image">
 					<div class="image-send-GPT" id="image-send-GPT"></div>
-					<input type="file" accept="image/*" multiple id="image-load-button"></button>
+					<input type="file" accept="image/*" multiple id="image-load-button" style="display: none;">
 				</div>
 			</div>
 		</div>
@@ -94,12 +101,8 @@
 	</div>
 
 	<div class="config-container" id="config-container">
-		<svg 
-		xmlns="http://www.w3.org/2000/svg"
-		xmlns:xlink="http://www.w3.org/1999/xlink"
-		viewBox="-10 -10 1024 1024" >
-			<path fill-rule="evenodd"  fill="rgb(255, 255, 255)"
-			d="M999.000,590.372 L863.690,590.372 C854.525,628.849 839.344,664.989 819.186,697.744 L906.776,785.334 C915.160,793.718 915.160,807.311 906.776,815.695 L815.695,906.776 C807.311,915.160 793.718,915.160 785.334,906.776 L697.744,819.186 C664.989,839.344 628.849,854.525 590.372,863.690 L590.372,999.000 C590.372,1004.523 585.895,1009.000 580.372,1009.000 L428.628,1009.000 C423.105,1009.000 418.628,1004.523 418.628,999.000 L418.628,863.690 C380.151,854.525 344.011,839.344 311.256,819.186 L223.666,906.776 C215.282,915.160 201.689,915.160 193.305,906.776 L102.224,815.695 C93.840,807.311 93.840,793.718 102.224,785.334 L189.814,697.744 C169.656,664.989 154.475,628.849 145.310,590.372 L10.000,590.372 C4.477,590.372 -0.000,585.895 -0.000,580.372 L-0.000,428.628 C-0.000,423.105 4.477,418.628 10.000,418.628 L145.310,418.628 C154.475,380.151 169.656,344.011 189.814,311.256 L102.224,223.666 C93.840,215.282 93.840,201.689 102.224,193.305 L193.305,102.224 C201.689,93.840 215.282,93.840 223.666,102.224 L311.256,189.814 C344.011,169.656 380.151,154.475 418.628,145.310 L418.628,10.000 C418.628,4.477 423.105,-0.000 428.628,-0.000 L580.372,-0.000 C585.895,-0.000 590.372,4.477 590.372,10.000 L590.372,145.310 C628.849,154.475 664.989,169.656 697.744,189.814 L785.334,102.224 C793.718,93.840 807.311,93.840 815.695,102.224 L906.776,193.305 C915.160,201.689 915.160,215.282 906.776,223.666 L819.186,311.256 C839.344,344.011 854.525,380.151 863.690,418.628 L999.000,418.628 C1004.523,418.628 1009.000,423.105 1009.000,428.628 L1009.000,580.372 C1009.000,585.895 1004.523,590.372 999.000,590.372 ZM504.500,298.406 C390.678,298.406 298.406,390.678 298.406,504.500 C298.406,618.322 390.678,710.594 504.500,710.594 C618.322,710.594 710.594,618.322 710.594,504.500 C710.594,390.678 618.322,298.406 504.500,298.406 Z"/>
+		<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+			<path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.06-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.73,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.06,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.43-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.49-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/>
 		</svg>
 		<div class="config-container-content">
 			<div class="config-tabs">
@@ -181,8 +184,12 @@
 				</div>
 			</div>
 			<div class="config-buttons">
-				<button class="config-button" id="s" onclick="configSave()">&#9660;</button>		
-				<button class="config-button" id="l" onclick="configLoad()">&#9650;</button>			
+				<button class="config-button" id="l" onclick="configLoad()">
+					<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="margin-right: 6px;"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg> Load
+				</button>
+				<button class="config-button" id="s" onclick="configSave()">
+					<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="margin-right: 6px;"><path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg> Save
+				</button>			
 			</div>
 		</div>
 	</div>

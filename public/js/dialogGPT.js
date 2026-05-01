@@ -434,7 +434,7 @@ export class DialogGPT {
 
 		const userIcon = document.createElement("div");
 		userIcon.setAttribute("class", "chat-container-GPT-messages-user-icon");
-		userIcon.innerHTML = "U";
+		userIcon.innerHTML = `<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>`;
 
 		const userBubble = document.createElement("div");
 		userBubble.setAttribute("class", "chat-container-GPT-messages-user-bubble");
@@ -472,7 +472,7 @@ export class DialogGPT {
 
 		const botIcon = document.createElement("div");
 		botIcon.setAttribute("class", "chat-container-GPT-messages-bot-icon");
-		botIcon.innerHTML = "B";
+		botIcon.innerHTML = `<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 3l-1.5 3.5L14 8l3.5 1.5L19 13l1.5-3.5L24 8l-3.5-1.5L19 3zM10.5 5L8 10.5 2.5 13l5.5 2.5L10.5 21l2.5-5.5L18.5 13l-5.5-2.5L10.5 5z"/></svg>`;
 
 		const botBubble = document.createElement("div");
 		botBubble.setAttribute("class", "chat-container-GPT-messages-bot-bubble");
@@ -566,7 +566,7 @@ export class DialogGPT {
 
 		const botIcon = document.createElement("div");
 		botIcon.setAttribute("class", "chat-container-GPT-messages-bot-icon");
-		botIcon.innerHTML = "B";
+		botIcon.innerHTML = `<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 3l-1.5 3.5L14 8l3.5 1.5L19 13l1.5-3.5L24 8l-3.5-1.5L19 3zM10.5 5L8 10.5 2.5 13l5.5 2.5L10.5 21l2.5-5.5L18.5 13l-5.5-2.5L10.5 5z"/></svg>`;
 
 		const botBubble = document.createElement("div");
 		botBubble.setAttribute("class", "chat-container-GPT-messages-bot-bubble");
