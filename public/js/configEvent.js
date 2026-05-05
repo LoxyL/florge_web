@@ -77,8 +77,9 @@ async function configLoad() {
         if (document.getElementById('config-use-chat-search-GPT-baidu')) document.getElementById('config-use-chat-search-GPT-baidu').checked = config.useChatSearchBaidu || false;
         if (document.getElementById('config-use-chat-search-GPT-zhihu')) document.getElementById('config-use-chat-search-GPT-zhihu').checked = config.useChatSearchZhihu || false;
 
-        // Initialize bots after loading config
+        // Restore sidebar model/tokens from localStorage before Bot reads `<select>` (custom UI stays in sync via `change` in loadSidebarSettings).
         if (dialog && document.getElementById('model-GPT')) {
+            dialog.loadSidebarSettings();
             dialog.initializeBots();
         }
 

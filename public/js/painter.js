@@ -70,9 +70,21 @@ function loadSidebarSettings() {
         const stored = localStorage.getItem('painterSettings');
         if (stored) {
             const settings = JSON.parse(stored);
-            if (settings.model) document.getElementById('model-painter').value = settings.model;
-            if (settings.ratio) document.getElementById('image-ratio').value = settings.ratio;
-            if (settings.quality) document.getElementById('image-quality').value = settings.quality;
+            const modelEl = document.getElementById('model-painter');
+            if (settings.model && modelEl) {
+                modelEl.value = settings.model;
+                modelEl.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            const ratioEl = document.getElementById('image-ratio');
+            if (settings.ratio && ratioEl) {
+                ratioEl.value = settings.ratio;
+                ratioEl.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            const qualityEl = document.getElementById('image-quality');
+            if (settings.quality && qualityEl) {
+                qualityEl.value = settings.quality;
+                qualityEl.dispatchEvent(new Event('change', { bubbles: true }));
+            }
         }
     } catch (e) {
         console.error('Failed to load painter settings', e);

@@ -38,7 +38,6 @@ export class DialogGPT {
 	}
 
 	init() {
-		this.loadSidebarSettings();
 		this.addSidebarEventListeners();
 		this._bindChatScrollListener();
 
@@ -47,6 +46,8 @@ export class DialogGPT {
 		this._imageLoadInteract();
 		this._loadRecordList();
 		this._modelSelectInteract();
+		/** After listeners + custom select exist: restore localStorage and sync native + UI via `change` */
+		this.loadSidebarSettings();
 	}
 
 	initializeBots() {
@@ -1250,6 +1251,7 @@ export class DialogGPT {
 		const modelSelect = document.getElementById('model-GPT');
 		if (modelSelect && localStorage.getItem('model-GPT')) {
 			modelSelect.value = localStorage.getItem('model-GPT');
+			modelSelect.dispatchEvent(new Event('change', { bubbles: true }));
 		}
 		
 		const maxTokens = document.getElementById('max-tokens');
@@ -1257,6 +1259,7 @@ export class DialogGPT {
 		if (maxTokens && maxTokensValue && localStorage.getItem('max-tokens')) {
 			maxTokens.value = localStorage.getItem('max-tokens');
 			maxTokensValue.innerHTML = maxTokens.value;
+			maxTokens.dispatchEvent(new Event('input', { bubbles: true }));
 		}
 
 		const maxContexts = document.getElementById('max-contexts');
@@ -1264,6 +1267,7 @@ export class DialogGPT {
 		if (maxContexts && maxContextsValue && localStorage.getItem('max-contexts')) {
 			maxContexts.value = localStorage.getItem('max-contexts');
 			maxContextsValue.innerHTML = maxContexts.value;
+			maxContexts.dispatchEvent(new Event('input', { bubbles: true }));
 		}
 
 		if (this.bot) this._syncMaxTokensFromSidebar();
