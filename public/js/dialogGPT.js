@@ -4,6 +4,8 @@ import { config } from './configEvent.js';
 export class DialogGPT {
 	constructor() {
 		this.useGlobalSystemPrompt = false;
+		this.stickChatToBottom = true;
+		this._chatStickThresholdPx = 80;
 		this.dialog_num = 0;
 		this.bot = null;
 		this.agent = null;
@@ -17,9 +19,28 @@ export class DialogGPT {
 		document.addEventListener('config-loaded', () => this.init());
 	}
 
+	_bindChatScrollListener() {
+		const el = document.getElementById('chat-container-GPT-messages');
+		if (!el) return;
+		const onScroll = () => {
+			const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+			this.stickChatToBottom = gap <= this._chatStickThresholdPx;
+		};
+		el.addEventListener('scroll', onScroll, { passive: true });
+	}
+
+	/** 仅当用户已在底部（stickChatToBottom）或 force 为 true 时滚到末尾 */
+	_syncChatScroll(force) {
+		const el = document.getElementById('chat-container-GPT-messages');
+		if (!el) return;
+		if (!force && !this.stickChatToBottom) return;
+		el.scrollTop = el.scrollHeight;
+	}
+
 	init() {
 		this.loadSidebarSettings();
 		this.addSidebarEventListeners();
+		this._bindChatScrollListener();
 
 		this._switchInteract();
 		this._windowInteract();
@@ -221,6 +242,7 @@ export class DialogGPT {
 
 	_clear() {
 		this.dialog_num = 0;
+		this.stickChatToBottom = true;
 		const container = document.getElementById('chat-container-GPT-messages');
 		if (container) container.innerHTML = '';
 		if (this.bot) {
@@ -518,7 +540,7 @@ export class DialogGPT {
 		localSystemSet.appendChild(localSystemBubble);
 		chatContainer.appendChild(localSystemSet);
 		
-		chatContainer.scrollTop = chatContainer.scrollHeight;
+		this._syncChatScroll(true);
 
 		return {localSystemBubble, localSystemContent};
 	}
@@ -551,7 +573,8 @@ export class DialogGPT {
 			this.bot.appendUserMessage(inputValue);
 		}
 
-		chatContainer.scrollTop = chatContainer.scrollHeight;
+		this.stickChatToBottom = true;
+		this._syncChatScroll(true);
 	}
 
 	async _receive_message() {
@@ -577,14 +600,14 @@ export class DialogGPT {
 		botSet.appendChild(botIcon);
 		botSet.appendChild(botBubble);
 		chatContainer.appendChild(botSet);
-		chatContainer.scrollTop = chatContainer.scrollHeight;
+		this._syncChatScroll(false);
 
 		for await (const piece of contentIter) {
 			if (piece == undefined) continue;
 			receive_content += piece;
 			// streamDisplay.textContent = receive_content;
 			botBubble.innerHTML = this._processTextDisplay(receive_content);
-			chatContainer.scrollTop = chatContainer.scrollHeight;
+			this._syncChatScroll(false);
 		}
 
 		botBubble.innerHTML = this._processTextDisplay(receive_content);
@@ -604,6 +627,7 @@ export class DialogGPT {
 		botBubble.appendChild(rawContainer);
 		
 		this._botBubbleInteract(botBubble);
+		this._syncChatScroll(false);
 		console.log("[INFO]Done receive content.");
 	}
 
@@ -745,7 +769,7 @@ export class DialogGPT {
 		localSystemBubble.classList.add('active');
 
 		const chatContainer = document.getElementById("chat-container-GPT-messages");
-		chatContainer.scrollTop = chatContainer.scrollHeight;
+		this._syncChatScroll(false);
 
 		for await (const piece of this.agent.interact(filterPrompt, JSON.stringify(search_results))) {
 			results += piece;
@@ -796,7 +820,7 @@ export class DialogGPT {
 			searchTitle.innerHTML = "Analyzing..."
 			searchBubble.appendChild(searchTitle);
 
-			chatContainer.scrollTop = chatContainer.scrollHeight;
+			this._syncChatScroll(false);
 
 			const keywords = await this._generateKeyword(inputValue);
 			searchTitle.innerHTML = "Searching..."
@@ -949,7 +973,7 @@ export class DialogGPT {
 			if (piece == undefined) continue;
 			receive_content += piece;
 			botBubble.innerHTML = this._processTextDisplay(receive_content);
-			if (chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
+			if (chatContainer) this._syncChatScroll(false);
 		}
 
 		botBubble.innerHTML = this._processTextDisplay(receive_content);
@@ -968,6 +992,7 @@ export class DialogGPT {
 		rawContainer.innerHTML = receive_content;
 		botBubble.appendChild(rawContainer);
 		
+		this._syncChatScroll(false);
 		console.log("[INFO]Done receive content.");
 
 		await this._saveRecordContent();
@@ -1187,9 +1212,11 @@ export class DialogGPT {
 				chatContainer.appendChild(localSystemSet);
 			}
 
-			chatContainer.scrollTop = chatContainer.scrollHeight;
 			this.dialog_num += 1;
 		}
+
+		this.stickChatToBottom = true;
+		this._syncChatScroll(true);
 	}
 
 	async _nameRecord() {
