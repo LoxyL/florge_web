@@ -218,6 +218,51 @@ export class DialogGPT {
 			.replace(/'/g, "&#39;");
 	}
 
+	_protectBlockMath(text) {
+		const mathBlocks = [];
+		const placeholderPrefix = "\uE000MATH_BLOCK_";
+		const protect = (chunk) => chunk.replace(/\\\[[\s\S]*?\\\]|\$\$[\s\S]*?\$\$/g, (match) => {
+			const placeholder = `${placeholderPrefix}${mathBlocks.length}\uE001`;
+			mathBlocks.push(match);
+			return placeholder;
+		});
+
+		let protectedText = "";
+		let pendingText = "";
+		let inFence = false;
+		let fenceMarker = "";
+		const lines = text.split(/(\r?\n)/);
+
+		for (let i = 0; i < lines.length; i += 2) {
+			const line = lines[i];
+			const newline = lines[i + 1] || "";
+			const fenceMatch = line.match(/^\s*(```+|~~~+)/);
+
+			if (fenceMatch && (!inFence || fenceMatch[1][0] === fenceMarker)) {
+				if (!inFence) {
+					protectedText += protect(pendingText);
+					pendingText = "";
+					inFence = true;
+					fenceMarker = fenceMatch[1][0];
+				} else {
+					inFence = false;
+					fenceMarker = "";
+				}
+				protectedText += line + newline;
+				continue;
+			}
+
+			if (inFence) {
+				protectedText += line + newline;
+			} else {
+				pendingText += line + newline;
+			}
+		}
+
+		protectedText += protect(pendingText);
+		return { protectedText, mathBlocks, placeholderPrefix };
+	}
+
 	_processTextDisplay(text) {
 		const md = new markdownit({
 			highlight: function(code, lang) {
@@ -228,6 +273,7 @@ export class DialogGPT {
 			}
 		});
 
+		const { protectedText, mathBlocks, placeholderPrefix } = this._protectBlockMath(text);
 		const replaceOutsideCode = (text) => {
 			return text.split('`').map((part, index) => {
 				if (index % 2 === 0) {
@@ -237,7 +283,10 @@ export class DialogGPT {
 			}).join('`');
 		};
 
-		let html = md.render(replaceOutsideCode(text));
+		let html = md.render(replaceOutsideCode(protectedText));
+		mathBlocks.forEach((block, index) => {
+			html = html.replace(`${placeholderPrefix}${index}\uE001`, this._processRawDisplay(block));
+		});
 		return html;
 	}
 
@@ -279,8 +328,6 @@ export class DialogGPT {
 		let rightClickCount = 0;
 		let lastRightClickTime = 0;
 
-		const rawContent = bubble.lastElementChild.innerHTML;
-
 		bubble.addEventListener('contextmenu', event => {
 			event.preventDefault();
 
@@ -305,6 +352,8 @@ export class DialogGPT {
 			const currentTime = new Date().getTime();
 
 			if(currentTime - lastRightClickTime < 500){
+				const rawContainer = Array.from(bubble.children).find(child => child.id === 'raw-message');
+				const rawContent = rawContainer ? rawContainer.textContent : bubble.textContent;
 				navigator.clipboard.writeText(rawContent)
 				.then(() => {
 					bubble.classList.add('succeed');
@@ -515,7 +564,7 @@ export class DialogGPT {
 
 		const rawContainer = document.createElement('pre');
 		rawContainer.setAttribute("id", "raw-message");
-		rawContainer.innerHTML = content;
+		rawContainer.textContent = content;
 		botBubble.appendChild(rawContainer);
 
 		this._botBubbleInteract(botBubble);
@@ -624,7 +673,7 @@ export class DialogGPT {
 
 		const rawContainer = document.createElement('pre');
 		rawContainer.setAttribute("id", "raw-message");
-		rawContainer.innerHTML = receive_content;
+		rawContainer.textContent = receive_content;
 		botBubble.appendChild(rawContainer);
 		
 		this._botBubbleInteract(botBubble);
@@ -990,7 +1039,7 @@ export class DialogGPT {
 
 		const rawContainer = document.createElement('pre');
 		rawContainer.setAttribute("id", "raw-message");
-		rawContainer.innerHTML = receive_content;
+		rawContainer.textContent = receive_content;
 		botBubble.appendChild(rawContainer);
 		
 		this._syncChatScroll(false);
