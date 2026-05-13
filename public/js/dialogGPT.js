@@ -156,9 +156,11 @@ export class DialogGPT {
             const systemPrompt = config.systemPromptGPT;
             const maxTokensEle = document.getElementById("max-tokens");
             const maxTokens = maxTokensEle ? Number(maxTokensEle.value) : 4000;
+            const maxContextsEle = document.getElementById("max-contexts");
+            const maxContexts = maxContextsEle ? Number(maxContextsEle.value) : 10;
             
             this.useGlobalSystemPrompt = useSystemPrompt;
-            this.bot.updateParameters({ useSystemPrompt, systemPrompt, maxTokens });
+            this.bot.updateParameters({ useSystemPrompt, systemPrompt, maxTokens, maxContexts });
             if (this.agent) this.agent.updateParameters({ maxTokens });
             
             const globalSystemSet = document.getElementById("chat-container-GPT-messages-global-system");
@@ -172,6 +174,7 @@ export class DialogGPT {
             if (this.bot) {
                 this.bot.updateParameters({ useSystemPrompt: true });
                 this._syncMaxTokensFromSidebar();
+                this._syncMaxContextsFromSidebar();
             }
 		}
 	}
@@ -193,6 +196,13 @@ export class DialogGPT {
 		const maxTokens = Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 4096;
 		if (this.bot) this.bot.updateParameters({ maxTokens });
 		if (this.agent) this.agent.updateParameters({ maxTokens });
+	}
+
+	_syncMaxContextsFromSidebar() {
+		const maxContextsEle = document.getElementById("max-contexts");
+		const raw = maxContextsEle ? Number(maxContextsEle.value) : NaN;
+		const maxContexts = Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 10;
+		if (this.bot) this.bot.updateParameters({ maxContexts });
 	}
 
 	_getInputGPT() {
@@ -974,6 +984,7 @@ export class DialogGPT {
 		}
 
 		this._syncMaxTokensFromSidebar();
+		this._syncMaxContextsFromSidebar();
 
 		const useChatSearch = config.useChatSearchGPT;
 
@@ -1008,6 +1019,7 @@ export class DialogGPT {
 
 		window.isInteracting = true;
 		this._syncMaxTokensFromSidebar();
+		this._syncMaxContextsFromSidebar();
 		this._switchToStopButton();
 
 		const contentIter = this.bot.regenerateMessage(id);
@@ -1319,7 +1331,10 @@ export class DialogGPT {
 			maxContexts.dispatchEvent(new Event('input', { bubbles: true }));
 		}
 
-		if (this.bot) this._syncMaxTokensFromSidebar();
+		if (this.bot) {
+			this._syncMaxTokensFromSidebar();
+			this._syncMaxContextsFromSidebar();
+		}
 	}
 
 	saveSidebarSettings() {
@@ -1337,6 +1352,7 @@ export class DialogGPT {
 		if (maxContexts) {
 			localStorage.setItem('max-contexts', maxContexts.value);
 			document.getElementById("max-contexts-value").innerHTML = maxContexts.value;
+			this._syncMaxContextsFromSidebar();
 		}
 	}
 

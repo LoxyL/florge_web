@@ -98,6 +98,7 @@ export class BotGPT extends BaseGPT {
         this.useSystemPrompt = false;
         this.systemPrompt = ``;
         this.maxTokens = 4096;
+        this.maxContexts = 10;
         this.messages = [];
         this._initializeMessages();
         console.log("[INFO]Done creating new bot.");
@@ -116,6 +117,7 @@ export class BotGPT extends BaseGPT {
         this.useSystemPrompt = typeof params.useSystemPrompt === 'boolean' ? params.useSystemPrompt : this.useSystemPrompt;
         this.systemPrompt = params.systemPrompt || this.systemPrompt;
         this.maxTokens = params.maxTokens || this.maxTokens;
+        this.maxContexts = params.maxContexts || this.maxContexts;
         
         if (this.useSystemPrompt) {
             this.messages[0].content = this.systemPrompt;
@@ -123,7 +125,14 @@ export class BotGPT extends BaseGPT {
             this.messages[0].content = '';
         }
 
-        console.log("[INFO]Current params:\n[INFO]\tmodel: ", this.model, "\n[INFO]\tmax_tokens: ", this.maxTokens);
+        console.log("[INFO]Current params:\n[INFO]\tmodel: ", this.model, "\n[INFO]\tmax_tokens: ", this.maxTokens, "\n[INFO]\tmax_contexts: ", this.maxContexts);
+    }
+
+    _getMessagesForRequest() {
+        const systemMessage = this.messages[0] ? [this.messages[0]] : [];
+        const historyMessages = this.messages.slice(1);
+        const maxContexts = Math.max(1, Math.floor(Number(this.maxContexts) || 1));
+        return systemMessage.concat(historyMessages.slice(-maxContexts));
     }
 
     clearHistory() {
@@ -145,9 +154,7 @@ export class BotGPT extends BaseGPT {
 
         this.messages = contextBefore;
 
-        let fullResponse = "";
         for await (const piece of this.answer()) {
-            fullResponse += piece;
             yield piece;
         }
 
@@ -178,7 +185,7 @@ export class BotGPT extends BaseGPT {
     async *answer() {
         const body = {
             model: this.model,
-            messages: this.messages,
+            messages: this._getMessagesForRequest(),
             max_tokens: this.maxTokens,
             stream: true
         };
