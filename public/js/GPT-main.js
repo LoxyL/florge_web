@@ -33,8 +33,14 @@ function streamStop() {
     dialog.streamStop();
 }
 
+function regenerateOverview() {
+    if(isInteracting) return;
+    dialog.regenerateOverview();
+}
+
 window.send = send;
 window.newChat = newChat;
 window.switchRecord = switchRecord;
 window.deleteRecord = deleteRecord;
 window.streamStop = streamStop;
+window.regenerateOverview = regenerateOverview;

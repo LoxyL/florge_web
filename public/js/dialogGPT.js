@@ -205,6 +205,227 @@ export class DialogGPT {
 		if (this.bot) this.bot.updateParameters({ maxContexts });
 	}
 
+	_overviewStorageKey(recordId = this.current_record_id) {
+		return `chat-overview-${recordId}`;
+	}
+
+	_getOverviewCache(recordId = this.current_record_id) {
+		try {
+			const raw = localStorage.getItem(this._overviewStorageKey(recordId));
+			const parsed = raw ? JSON.parse(raw) : [];
+			return Array.isArray(parsed) ? parsed : [];
+		} catch (_err) {
+			return [];
+		}
+	}
+
+	_saveOverviewCache(items, recordId = this.current_record_id) {
+		localStorage.setItem(this._overviewStorageKey(recordId), JSON.stringify(items));
+	}
+
+	_setOverviewButtonLoading(loading) {
+		const button = document.querySelector('.chat-overview-regenerate-button');
+		if (!button) return;
+		button.disabled = loading;
+		button.textContent = loading ? 'Generating...' : 'Regenerate Overview';
+	}
+
+	_renderOverview(items = this._getOverviewCache()) {
+		const list = document.getElementById('chat-overview-list');
+		if (!list) return;
+		list.innerHTML = '';
+
+		if (!items.length) {
+			const empty = document.createElement('div');
+			empty.className = 'chat-overview-empty';
+			empty.textContent = 'No overview yet.';
+			list.appendChild(empty);
+			return;
+		}
+
+		for (const item of items) {
+			if (!item || !['user', 'assistant'].includes(item.role)) continue;
+			const entry = document.createElement('button');
+			entry.className = `chat-overview-item ${item.role}`;
+			entry.type = 'button';
+			entry.dataset.targetId = String(item.id);
+			entry.addEventListener('click', () => this._jumpToOverviewTarget(item.id, item.role));
+
+			const role = document.createElement('span');
+			role.className = 'chat-overview-role';
+			role.textContent = item.role === 'user' ? 'U' : 'B';
+
+			const summary = document.createElement('span');
+			summary.className = 'chat-overview-summary';
+			summary.textContent = item.summary || '';
+
+			entry.appendChild(role);
+			entry.appendChild(summary);
+			list.appendChild(entry);
+		}
+	}
+
+	_jumpToOverviewTarget(id, role) {
+		const prefix = role === 'user' ? 'user' : 'bot';
+		const target = document.getElementById(`chat-container-GPT-messages-${prefix}-${id}`);
+		if (!target) return;
+		this.stickChatToBottom = false;
+		target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+		target.classList.add('overview-highlight');
+		setTimeout(() => target.classList.remove('overview-highlight'), 1200);
+	}
+
+	_messageContentToText(content) {
+		if (Array.isArray(content)) {
+			return content.map((part) => {
+				if (part?.type === 'text') return part.text || '';
+				if (part?.type === 'image_url') return '[Image]';
+				return '';
+			}).filter(Boolean).join('\n');
+		}
+		return String(content || '');
+	}
+
+	_getOverviewMessagesFromRecord(recordContents) {
+		const records = Array.isArray(recordContents)
+			? recordContents
+			: (this.bot ? this.bot.messages.slice(1) : []);
+
+		return records
+			.map((message, index) => ({
+				id: index + 1,
+				role: message.role,
+				content: this._messageContentToText(message.content)
+			}))
+			.filter((message) => ['user', 'assistant'].includes(message.role) && message.content.trim())
+			.map((message) => ({
+				...message,
+				hash: `${message.role}:${message.content.length}:${message.content.slice(0, 80)}:${message.content.slice(-80)}`,
+				content: message.content.length > 6000 ? `${message.content.slice(0, 6000)}\n...[truncated]` : message.content
+			}));
+	}
+
+	_parseOverviewJson(text) {
+		const trimmed = text.trim();
+		const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+		const candidate = fenced ? fenced[1].trim() : trimmed;
+		try {
+			return JSON.parse(candidate);
+		} catch (_err) {
+			const start = candidate.indexOf('[');
+			const end = candidate.lastIndexOf(']');
+			if (start !== -1 && end !== -1 && end > start) {
+				return JSON.parse(candidate.slice(start, end + 1));
+			}
+			throw _err;
+		}
+	}
+
+	_fallbackOverviewSummary(message) {
+		const compact = message.content.replace(/\s+/g, ' ').trim();
+		if (message.role === 'user') {
+			return compact.split(/\s+/).slice(0, 6).join(' ').slice(0, 48) || 'User message';
+		}
+		const sentences = compact.match(/[^.!?。！？]+[.!?。！？]?/g) || [compact];
+		return sentences.slice(0, 2).join(' ').slice(0, 120) || 'Assistant reply';
+	}
+
+	async _generateOverviewItems(messages) {
+		if (!messages.length) return [];
+		if (!this.agent) {
+			return messages.map((message) => ({
+				id: message.id,
+				role: message.role,
+				hash: message.hash,
+				summary: this._fallbackOverviewSummary(message)
+			}));
+		}
+
+		const systemPrompt = `You summarize chat messages for a compact navigation overview.
+Return ONLY a valid JSON array. Keep the same order and same id/role for every input item.
+For user messages, summary must be 2-6 keywords or a very short phrase.
+For assistant messages, summary must be 1-3 short sentences.
+Use the primary language of each message. No Markdown, no code fences, no extra explanation.
+Output item shape: {"id": number, "role": "user" | "assistant", "summary": string}`;
+
+		const results = [];
+		const batchSize = 8;
+		for (let i = 0; i < messages.length; i += batchSize) {
+			const batch = messages.slice(i, i + batchSize);
+			const input = batch.map(({ id, role, content }) => ({ id, role, content }));
+			let raw = '';
+			for await (const piece of this.agent.interact(systemPrompt, JSON.stringify(input))) {
+				if (piece == undefined) continue;
+				raw += piece;
+			}
+
+			let parsed;
+			try {
+				parsed = this._parseOverviewJson(raw);
+			} catch (err) {
+				console.error('[INFO][OVERVIEW]Failed to parse overview JSON:', err, raw);
+				parsed = [];
+			}
+
+			for (const message of batch) {
+				const generated = Array.isArray(parsed)
+					? parsed.find((item) => Number(item.id) === message.id && item.role === message.role)
+					: null;
+				results.push({
+					id: message.id,
+					role: message.role,
+					hash: message.hash,
+					summary: String(generated?.summary || this._fallbackOverviewSummary(message)).trim()
+				});
+			}
+		}
+
+		return results;
+	}
+
+	async _syncOverviewForCurrentRecord() {
+		const messages = this._getOverviewMessagesFromRecord();
+		const cache = this._getOverviewCache();
+		const cacheById = new Map(cache.map((item) => [item.id, item]));
+		const missing = messages.filter((message) => {
+			const cached = cacheById.get(message.id);
+			return !cached || cached.hash !== message.hash || cached.role !== message.role;
+		});
+		if (!missing.length) {
+			this._renderOverview(cache.filter((item) => messages.some((message) => message.id === item.id)));
+			return;
+		}
+
+		this._setOverviewButtonLoading(true);
+		try {
+			const generated = await this._generateOverviewItems(missing);
+			const generatedById = new Map(generated.map((item) => [item.id, item]));
+			const merged = messages.map((message) => generatedById.get(message.id) || cacheById.get(message.id)).filter(Boolean);
+			this._saveOverviewCache(merged);
+			this._renderOverview(merged);
+		} finally {
+			this._setOverviewButtonLoading(false);
+		}
+	}
+
+	async regenerateOverview() {
+		if (!this.bot || !this.agent) return;
+		await this._regenerateCurrentOverview();
+	}
+
+	async _regenerateCurrentOverview() {
+		const recordContents = await this._getRecordData();
+		const messages = this._getOverviewMessagesFromRecord(recordContents);
+		this._setOverviewButtonLoading(true);
+		try {
+			const items = await this._generateOverviewItems(messages);
+			this._saveOverviewCache(items);
+			this._renderOverview(items);
+		} finally {
+			this._setOverviewButtonLoading(false);
+		}
+	}
+
 	_getInputGPT() {
 		const inputElement = document.getElementById("message-send-GPT");
 		const inputValue = inputElement.value;
@@ -331,6 +552,7 @@ export class DialogGPT {
 
 		this.bot.deleteMessage(id);
 		await this._saveRecordContent();
+		localStorage.removeItem(this._overviewStorageKey());
 		this._loadRecordContent();
 	}
 
@@ -1007,6 +1229,7 @@ export class DialogGPT {
 				this.dialog_num += 1;
 				await this._saveRecordContent();
 				await this._nameRecord();
+				await this._syncOverviewForCurrentRecord();
 				this._switchToSendButton();
 				window.isInteracting = false;
 			}
@@ -1058,6 +1281,7 @@ export class DialogGPT {
 		console.log("[INFO]Done receive content.");
 
 		await this._saveRecordContent();
+		await this._syncOverviewForCurrentRecord();
 		
 		this._switchToSendButton();
 		window.isInteracting = false;
@@ -1190,6 +1414,7 @@ export class DialogGPT {
 		recordList.recordIds.unshift(this.current_record_id);
 		recordList.recordTitles.unshift('New Chat');
 		await this._saveRecordData([]);
+		this._saveOverviewCache([]);
 		await this._saveRecordList(recordList);
 		this._loadRecordList();
 	}
@@ -1201,6 +1426,7 @@ export class DialogGPT {
 		recordList.recordTitles.splice(index, 1);
 		await this._saveRecordList(recordList);
 		await this._loadRecordList();
+		localStorage.removeItem(this._overviewStorageKey(id));
 		this._removeRecordData(id);
 	}
 
@@ -1279,6 +1505,7 @@ export class DialogGPT {
 
 		this.stickChatToBottom = true;
 		this._syncChatScroll(true);
+		this._renderOverview();
 	}
 
 	async _nameRecord() {
