@@ -512,7 +512,7 @@ body {
   align-items: flex-end;
   width: 100%;
   max-width: 800px;
-  padding: 12px 18px;
+  padding: 12px 12px 12px 18px;
   box-sizing: border-box;
   box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
   pointer-events: auto;
@@ -607,7 +607,7 @@ body {
   border: none;
   width: 40px;
   height: 40px;
-  border-radius: 20px;
+  border-radius: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -674,7 +674,7 @@ body {
   border: none;
   width: 40px;
   height: 40px;
-  border-radius: 20px;
+  border-radius: 18px;
   align-items: center;
   justify-content: center;
   cursor: pointer;
