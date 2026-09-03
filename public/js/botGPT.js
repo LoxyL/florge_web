@@ -5,7 +5,7 @@ class BaseGPT {
     constructor(config = {}) {
         this.src = config.url || '';
         this.apiKey = config.apiKey || '';
-        this.model = config.model || 'gpt-5-nano';
+        this.model = config.model || 'gpt-5.6-luna';
         this.streamControl = null;
         this._updateHeaders();
     }
